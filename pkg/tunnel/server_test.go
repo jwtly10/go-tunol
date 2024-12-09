@@ -2,7 +2,12 @@ package tunnel
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -24,8 +29,9 @@ func setupUnitTestEnv(t *testing.T) config.ServerConfig {
 
 // TestServerStartAndAcceptConnections tests that the server starts and accepts connections
 func TestServerStartAndAcceptConnections(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	server := NewServer(":0", nil, &cfg) // Use a random port for testing (with stdout logger)
+	server := NewServer(":0", logger, &cfg) // Use a random port for testing
 
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
@@ -55,8 +61,9 @@ func TestServerStartAndAcceptConnections(t *testing.T) {
 
 // TestTunnelRegistration tests that the server correctly registers a new tunnel
 func TestTunnelRegistration(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	server := NewServer(":0", nil, &cfg) // Use a random port for testing (with stdout logger)
+	server := NewServer(":0", logger, &cfg) // Use a random port for testing
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -110,5 +117,90 @@ func TestTunnelRegistration(t *testing.T) {
 
 	if len(server.tunnels) != 1 {
 		t.Fatalf("expected to have added 1 tunnel, got %d", len(server.tunnels))
+	}
+}
+
+func TestHTTPForwarding(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	cfg := setupUnitTestEnv(t)
+	server := NewServer(":8002", logger, &cfg)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") == "websocket" {
+			server.Handler().ServeHTTP(w, r)
+		} else {
+			server.ServeHTTP(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	// Since we are actually testing the server, we need to overwrite the port to the test server port
+	u, _ := url.Parse(ts.URL)
+	cfg.Port = u.Port()
+
+	// Connect as a WebSocket client (simulating the CLI)
+	wsURL := strings.Replace(ts.URL, "http", "ws", 1)
+	ws, err := websocket.Dial(wsURL, "", ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Register a tunnel
+	tunnelReq := Message{
+		Type:    MessageTypeTunnelReq,
+		Payload: TunnelRequest{LocalPort: 8000},
+	}
+	if err := websocket.JSON.Send(ws, tunnelReq); err != nil {
+		t.Fatal(err)
+	}
+
+	// Get the tunnel URL
+	var resp Message
+	if err := websocket.JSON.Receive(ws, &resp); err != nil {
+		t.Fatal(err)
+	}
+	var tunnelResp TunnelResponse
+	b, _ := json.Marshal(resp.Payload)
+	json.Unmarshal(b, &tunnelResp)
+
+	// Capture any WebSocket messages (simulating the CLI)
+	go func() {
+		for {
+			var msg Message
+			if err := websocket.JSON.Receive(ws, &msg); err != nil {
+				return
+			}
+
+			// When we get an HTTP request forwarded to us
+			if msg.Type == MessageTypeHTTPRequest {
+				// Get the requestId from the http request
+				b, _ := json.Marshal(msg.Payload)
+				var req HTTPRequest
+				json.Unmarshal(b, &req)
+
+				// Mock local server response
+				responseMsg := Message{
+					Type: MessageTypeHTTPResponse,
+					Payload: HTTPResponse{
+						StatusCode: 200,
+						Headers:    map[string]string{"Content-Type": "text/plain"},
+						Body:       []byte("Hello from local server"),
+						RequestId:  req.RequestId,
+					},
+				}
+				websocket.JSON.Send(ws, responseMsg)
+			}
+		}
+	}()
+
+	// Check we can access the local server through the tunnel
+	res, err := http.Get(tunnelResp.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := io.ReadAll(res.Body)
+	if string(body) != "Hello from local server" {
+		t.Errorf("got %s, want Hello from local server", string(body))
 	}
 }
