@@ -37,7 +37,7 @@ func setupUnitTestEnv(t *testing.T) config.Config {
 func TestCreateMultipleTunnels(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	server := tunnel.NewServer(":0", logger, &cfg.Server)
+	server := tunnel.NewServer(logger, &cfg.Server)
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -74,7 +74,7 @@ func TestCreateMultipleTunnels(t *testing.T) {
 func TestHandleIncomingRequests(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	server := tunnel.NewServer(":0", logger, &cfg.Server)
+	server := tunnel.NewServer(logger, &cfg.Server)
 
 	// Create test HTTP server with ws support
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

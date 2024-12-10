@@ -18,7 +18,6 @@ import (
 )
 
 type Server struct {
-	addr            string
 	tunnels         map[string]*Tunnel
 	pendingRequests map[string]chan *HTTPResponse
 
@@ -36,12 +35,11 @@ type Tunnel struct {
 	Created   time.Time
 }
 
-func NewServer(addr string, logger *slog.Logger, cfg *config.ServerConfig) *Server {
+func NewServer(logger *slog.Logger, cfg *config.ServerConfig) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 	return &Server{
-		addr:            addr,
 		tunnels:         make(map[string]*Tunnel),
 		pendingRequests: make(map[string]chan *HTTPResponse),
 

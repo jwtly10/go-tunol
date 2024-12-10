@@ -31,7 +31,7 @@ func setupUnitTestEnv(t *testing.T) config.ServerConfig {
 func TestServerStartAndAcceptConnections(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	server := NewServer(":0", logger, &cfg) // Use a random port for testing
+	server := NewServer(logger, &cfg)
 
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
@@ -63,7 +63,7 @@ func TestServerStartAndAcceptConnections(t *testing.T) {
 func TestTunnelRegistration(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	server := NewServer(":0", logger, &cfg) // Use a random port for testing
+	server := NewServer(logger, &cfg)
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
@@ -123,7 +123,7 @@ func TestTunnelRegistration(t *testing.T) {
 func TestHTTPForwarding(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	server := NewServer(":8002", logger, &cfg)
+	server := NewServer(logger, &cfg)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
