@@ -9,12 +9,18 @@ import (
 
 type Config struct {
 	Server ServerConfig
+	Client ClientConfig
 }
 
 type ServerConfig struct {
 	Host   string
 	Port   string
 	Scheme string
+}
+
+type ClientConfig struct {
+	Url    string
+	Origin string
 }
 
 func LoadConfig() (*Config, error) {
@@ -33,6 +39,18 @@ func LoadConfig() (*Config, error) {
 		Host:   host,
 		Port:   port,
 		Scheme: scheme,
+	}
+
+	// Client configuration
+	url, err := getOrError("CLIENT_URL")
+	if err != nil {
+		return nil, err
+	}
+	origin := getOrDefault("CLIENT_ORIGIN", "http://localhost")
+
+	cfg.Client = ClientConfig{
+		Url:    url,
+		Origin: origin,
 	}
 
 	return cfg, nil

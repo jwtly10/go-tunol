@@ -62,12 +62,14 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 
 		switch msg.Type {
 		case MessageTypePing:
+			s.logger.Info("received ping message")
 			if err := websocket.JSON.Send(ws, Message{Type: MessageTypePong}); err != nil {
 				s.logger.Error("failed to send websocket message", "error", err)
 				return
 			}
 
 		case MessageTypeTunnelReq:
+			s.logger.Info("received tunnel request", "payload", msg.Payload)
 			var req TunnelRequest
 			b, err := json.Marshal(msg.Payload)
 			if err != nil {
@@ -106,6 +108,7 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 			s.logger.Info("new tunnel registered", "id", id, "local_port", req.LocalPort, "url", t.Path)
 
 		case MessageTypeHTTPResponse:
+			s.logger.Info("received http response from tunnel", "payload", msg.Payload)
 			var resp HTTPResponse
 			b, _ := json.Marshal(msg.Payload)
 			if err := json.Unmarshal(b, &resp); err != nil {
@@ -142,6 +145,7 @@ type HTTPResponse struct {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.logger.Info("received http request", "method", r.Method, "path", r.URL.Path)
 	tunnelId := strings.TrimPrefix(r.URL.Path, "/")
 
 	s.mu.Lock()
