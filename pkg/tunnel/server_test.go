@@ -178,6 +178,11 @@ func TestHTTPForwarding(t *testing.T) {
 				var req HTTPRequest
 				json.Unmarshal(b, &req)
 
+				// Check the path is correct
+				if req.Path != "/test/endpoint" {
+					t.Errorf("the request path was parsed incorrectly, got %s, want /test/endpoint", req.Path)
+				}
+
 				// Mock local server response
 				responseMsg := Message{
 					Type: MessageTypeHTTPResponse,
@@ -194,7 +199,7 @@ func TestHTTPForwarding(t *testing.T) {
 	}()
 
 	// Check we can access the local server through the tunnel
-	res, err := http.Get(tunnelResp.URL)
+	res, err := http.Get(tunnelResp.URL + "/test/endpoint")
 	if err != nil {
 		t.Fatal(err)
 	}

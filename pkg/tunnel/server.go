@@ -2,9 +2,11 @@ package tunnel
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -145,8 +147,14 @@ type HTTPResponse struct {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.logger.Info("received http request", "method", r.Method, "path", r.URL.Path)
-	tunnelId := strings.TrimPrefix(r.URL.Path, "/")
+	s.logger.Info("received http request", "method", r.Method, "rawPath", r.URL.Path)
+
+	// The url will look like this // TODO: In future it will be subdomain based
+	// http://localhost:8001/tunnel_id/some_external_path/and/maybe/more
+	tunnelId, realPath, err := extractTunnelIDAndPath(r.URL.String())
+	if err != nil {
+		s.logger.Error("failed to extract tunnel_id from url", "error", err)
+	}
 
 	s.mu.Lock()
 	tunnel, exists := s.tunnels[tunnelId]
@@ -188,11 +196,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	httpReq := HTTPRequest{
 		Method:    r.Method,
-		Path:      r.URL.Path,
+		Path:      realPath,
 		Body:      body,
 		Headers:   headers,
 		RequestId: requestId,
 	}
+
+	s.logger.Info("forwarding http request to tunnel", "tunnel_id", tunnelId, "request_id", requestId, "path", realPath)
 
 	msg := Message{
 		Type:    MessageTypeHTTPRequest,
@@ -222,4 +232,30 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // generateID generates a unique UUID for a tunnel
 func generateID() string {
 	return uuid.New().String()
+}
+
+// extractTunnelIDAndPath extracts the tunnel ID and the remaining path from a URL
+func extractTunnelIDAndPath(urlStr string) (tunnelID string, remainingPath string, err error) {
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return "", "", err
+	}
+
+	segments := strings.Split(strings.TrimPrefix(parsedURL.Path, "/"), "/")
+	if len(segments) == 0 {
+		return "", "", fmt.Errorf("no tunnel_id found in path")
+	}
+
+	// First segment is tunnel ID
+	tunnelID = segments[0]
+	if tunnelID == "" {
+		return "", "", fmt.Errorf("empty tunnel_id")
+	}
+
+	// Anything after the tunnel ID is the remaining path
+	if len(segments) > 1 {
+		remainingPath = "/" + strings.Join(segments[1:], "/")
+	}
+
+	return tunnelID, remainingPath, nil
 }
