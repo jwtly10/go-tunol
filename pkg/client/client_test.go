@@ -1,6 +1,8 @@
 package client
 
 import (
+	"github.com/jwtly10/go-tunol/pkg/config"
+	"github.com/jwtly10/go-tunol/pkg/tunnel"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,9 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/jwtly10/go-tunol/pkg/config"
-	"github.com/jwtly10/go-tunol/pkg/tunnel"
+	"time"
 )
 
 func setupUnitTestEnv(t *testing.T) config.Config {
@@ -44,7 +44,9 @@ func TestCreateMultipleTunnels(t *testing.T) {
 	wsURL := strings.Replace(ts.URL, "http", "ws", 1)
 	cfg.Client.Url = wsURL
 
-	client := NewClient(&cfg.Client, logger)
+	client := NewClient(&cfg.Client, logger, func(event RequestEvent) {
+		logger.Info("event", "event", event)
+	})
 	defer client.Close()
 
 	tunnel1, err := client.NewTunnel(8080)
@@ -100,7 +102,9 @@ func TestHandleIncomingRequests(t *testing.T) {
 	}))
 	defer localServer.Close()
 
-	client := NewClient(&cfg.Client, logger)
+	client := NewClient(&cfg.Client, logger, func(event RequestEvent) {
+		logger.Info("event", "event", event)
+	})
 	defer client.Close()
 
 	localURL, _ := url.Parse(localServer.URL)
@@ -111,7 +115,7 @@ func TestHandleIncomingRequests(t *testing.T) {
 		t.Fatalf("failed to create tunnel: %v", err)
 	}
 
-	resp, err := http.Get(tunnel.URL())
+	resp, err := http.Get(tunnel.URL() + "/")
 	if err != nil {
 		t.Fatalf("failed to make request through tunnel: %v", err)
 	}
@@ -119,5 +123,127 @@ func TestHandleIncomingRequests(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if string(body) != "hello from local" {
 		t.Errorf("got %s, want hello from local", string(body))
+	}
+}
+
+func TestClientCallbacks(t *testing.T) {
+	tests := []struct {
+		name          string
+		localHandler  http.HandlerFunc
+		expectedEvent RequestEvent // We'll only check fields we can predict
+		makeRequest   func(url string) (*http.Response, error)
+	}{
+		{
+			name: "successful_request",
+			localHandler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("success"))
+			},
+			expectedEvent: RequestEvent{
+				Method: "GET",
+				Path:   "/",
+				Status: http.StatusOK,
+				Error:  "",
+			},
+			makeRequest: func(url string) (*http.Response, error) {
+				return http.Get(url)
+			},
+		},
+		{
+			name: "local_server_error",
+			localHandler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("internal error"))
+			},
+			expectedEvent: RequestEvent{
+				Method: "GET",
+				Path:   "/",
+				Status: http.StatusInternalServerError,
+				Error:  "internal error", // The error should be any body content
+			},
+			makeRequest: func(url string) (*http.Response, error) {
+				return http.Get(url)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+			cfg := setupUnitTestEnv(t)
+			server := tunnel.NewServer(logger, &cfg.Server)
+
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Upgrade") == "websocket" {
+					server.Handler().ServeHTTP(w, r)
+				} else {
+					server.ServeHTTP(w, r)
+				}
+			}))
+			defer ts.Close()
+
+			tsURL, _ := url.Parse(ts.URL)
+			cfg.Server.Host = tsURL.Hostname()
+			cfg.Server.Port = tsURL.Port()
+			cfg.Server.Scheme = tsURL.Scheme
+			cfg.Client.Url = strings.Replace(ts.URL, "http", "ws", 1)
+
+			var localServer *httptest.Server
+			if tc.localHandler != nil {
+				localServer = httptest.NewServer(tc.localHandler)
+				defer localServer.Close()
+			} else {
+				localServer = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+			}
+
+			eventChan := make(chan RequestEvent, 1)
+
+			client := NewClient(&cfg.Client, logger, func(event RequestEvent) {
+				eventChan <- event
+			})
+			defer client.Close()
+
+			localURL, _ := url.Parse(localServer.URL)
+			port, _ := strconv.Atoi(localURL.Port())
+
+			tunnel, err := client.NewTunnel(port)
+			if err != nil {
+				t.Fatalf("failed to create tunnel: %v", err)
+			}
+
+			_, _ = tc.makeRequest(tunnel.URL() + "/") // For these tests, we will just call index
+
+			var receivedEvent RequestEvent
+			select {
+			case receivedEvent = <-eventChan:
+			case <-time.After(3 * time.Second):
+				t.Fatal("timeout waiting for event")
+			}
+
+			// Check fields we can predict
+			if receivedEvent.Method != tc.expectedEvent.Method {
+				t.Errorf("got method %s, want %s", receivedEvent.Method, tc.expectedEvent.Method)
+			}
+			if receivedEvent.Path != tc.expectedEvent.Path {
+				t.Errorf("got path %s, want %s", receivedEvent.Path, tc.expectedEvent.Path)
+			}
+			if receivedEvent.Status != tc.expectedEvent.Status {
+				t.Errorf("got status %d, want %d", receivedEvent.Status, tc.expectedEvent.Status)
+			}
+
+			if tc.expectedEvent.Error != "" && !strings.Contains(receivedEvent.Error, tc.expectedEvent.Error) {
+				t.Errorf("got error %q, want it to contain %q", receivedEvent.Error, tc.expectedEvent.Error)
+			}
+
+			if receivedEvent.TunnelID == "" {
+				t.Error("TunnelID not set")
+			}
+			if receivedEvent.Duration == 0 {
+				t.Error("Duration not set")
+			}
+			if receivedEvent.Timestamp.IsZero() {
+				t.Error("Timestamp not set")
+			}
+		})
 	}
 }
