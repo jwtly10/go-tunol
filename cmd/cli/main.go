@@ -159,6 +159,30 @@ func (a *App) handleEvent(port int, event client.RequestEvent) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	// If the connection has failed, log for user and kill CLI
+	if event.ConnectionFailed {
+		a.logger.Error("Connection to tunol server failed, shutting down", "port", port)
+		tunnelId := fmt.Sprintf("tunnel_%d", port)
+		if state, exists := a.tunnels[tunnelId]; exists {
+			state.isActive = false
+			state.lastErr = fmt.Errorf("connection to tunol server failed")
+		}
+
+		// Close all tunnels
+		for _, state := range a.tunnels {
+			if state.isActive {
+				state.tunnel.Close()
+			}
+		}
+
+		// The event contains an error message, so we log it
+		if event.Error != "" {
+			fmt.Println("Shutting down due to error:", event.Error)
+		}
+
+		os.Exit(1)
+	}
+
 	// Update stats
 	a.stats.requestCount++
 	if event.Status >= 500 || event.Error != "" {

@@ -30,8 +30,6 @@ type Tunnel interface {
 	URL() string
 	// LocalPort returns the local port of the tunnel
 	LocalPort() int
-	// Status returns the current status of the tunnel
-	Status() TunnelStatus
 	// Close closes the specific tunnel instance
 	Close() error
 }
@@ -44,17 +42,12 @@ type RequestEvent struct {
 	Duration  time.Duration
 	Error     string
 	Timestamp time.Time
+
+	// ConnectionFailed is set to true if the client lost connection to the server
+	ConnectionFailed bool
 }
 
 type EventHandler func(event RequestEvent)
-
-type TunnelStatus string
-
-const (
-	TunnelStatusConnected    TunnelStatus = "connected"
-	TunnelStatusDisconnected TunnelStatus = "disconnected"
-	TunnelStatusError        TunnelStatus = "error"
-)
 
 type client struct {
 	tunnels map[string]Tunnel
@@ -119,7 +112,6 @@ func (c *client) NewTunnel(localPort int) (Tunnel, error) {
 	t := &tunnelConn{
 		url:       tunnelResp.URL,
 		localPort: localPort,
-		status:    TunnelStatusConnected,
 		wsConn:    ws,
 	}
 
@@ -134,21 +126,29 @@ func (c *client) NewTunnel(localPort int) (Tunnel, error) {
 }
 
 func (c *client) handleMessages(t *tunnelConn) {
+	// Clean up tunnel on exit
+	defer func() {
+		c.mu.Lock()
+		// Close ws
+		t.Close()
+		delete(c.tunnels, t.url)
+		c.mu.Unlock()
+	}()
+
 	for {
 		var msg tunnel.Message
 		if err := websocket.JSON.Receive(t.wsConn, &msg); err != nil {
-			t.status = TunnelStatusError
-
 			if c.events != nil {
 				c.events(RequestEvent{
-					TunnelID:  t.url,
-					Error:     err.Error(),
-					Timestamp: time.Now(),
+					TunnelID:         t.url,
+					Error:            "Client lost connection to server: " + err.Error(),
+					Timestamp:        time.Now(),
+					ConnectionFailed: true,
 				})
 			}
 
 			c.logger.Error("failed to receive websocket message", "error", err)
-			return
+			return // This will trigger our deferred cleanup
 		}
 
 		switch msg.Type {
@@ -239,7 +239,6 @@ func (c *client) handleMessages(t *tunnelConn) {
 
 		case tunnel.MessageTypePing:
 			if err := websocket.JSON.Send(t.wsConn, tunnel.Message{Type: tunnel.MessageTypePong}); err != nil {
-				t.status = TunnelStatusError
 				c.logger.Error("failed to send websocket message", "error", err)
 				return
 			}
@@ -276,7 +275,6 @@ func (c *client) Close() error {
 type tunnelConn struct {
 	url       string
 	localPort int
-	status    TunnelStatus
 	wsConn    *websocket.Conn
 }
 
@@ -288,11 +286,10 @@ func (c *tunnelConn) LocalPort() int {
 	return c.localPort
 }
 
-func (c *tunnelConn) Status() TunnelStatus {
-	return c.status
-}
-
 func (c *tunnelConn) Close() error {
-	// TODO: Implement this method
+	if c.wsConn != nil {
+		return c.wsConn.Close()
+	}
+
 	return nil
 }

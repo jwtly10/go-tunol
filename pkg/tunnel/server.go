@@ -120,6 +120,9 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 				return
 			}
 
+		case MessageTypePong:
+			s.logger.Info("received pong message")
+
 		case MessageTypeTunnelReq:
 			s.logger.Info("received tunnel request", "payload", msg.Payload)
 			var req TunnelRequest

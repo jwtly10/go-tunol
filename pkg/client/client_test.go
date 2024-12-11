@@ -67,10 +67,6 @@ func TestCreateMultipleTunnels(t *testing.T) {
 	if tunnel1.URL() == tunnel2.URL() {
 		t.Error("tunnel URLs should be unique")
 	}
-
-	if tunnel1.Status() != TunnelStatusConnected {
-		t.Errorf("expected tunnel1 to be connected, got %s", tunnel1.Status())
-	}
 }
 
 func TestHandleIncomingRequests(t *testing.T) {
