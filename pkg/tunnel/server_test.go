@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jwtly10/go-tunol/pkg/config"
 	"golang.org/x/net/websocket"
@@ -207,5 +208,59 @@ func TestHTTPForwarding(t *testing.T) {
 	body, _ := io.ReadAll(res.Body)
 	if string(body) != "Hello from local server" {
 		t.Errorf("got %s, want Hello from local server", string(body))
+	}
+}
+
+// TestClientDisconnection verifies that the server properly cleans up when a client disconnects
+func TestClientDisconnection(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	cfg := setupUnitTestEnv(t)
+	server := NewServer(logger, &cfg)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") == "websocket" {
+			server.Handler().ServeHTTP(w, r)
+		} else {
+			server.ServeHTTP(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	wsURL := strings.Replace(ts.URL, "http", "ws", 1)
+	client, err := websocket.Dial(wsURL, "", ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tunnelReq := Message{
+		Type:    MessageTypeTunnelReq,
+		Payload: TunnelRequest{LocalPort: 8000},
+	}
+	if err := websocket.JSON.Send(client, tunnelReq); err != nil {
+		t.Fatal(err)
+	}
+
+	// Get tunnel response
+	var resp Message
+	if err := websocket.JSON.Receive(client, &resp); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify tunnel was created
+	if len(server.tunnels) != 1 {
+		t.Fatalf("expected 1 tunnel, got %d", len(server.tunnels))
+	}
+
+	// Simulate the server closing
+	client.Close()
+
+	time.Sleep(100 * time.Millisecond)
+
+	server.mu.Lock()
+	finalTunnels := len(server.tunnels)
+	server.mu.Unlock()
+
+	if finalTunnels != 0 {
+		t.Errorf("expected 0 tunnels after disconnect, got %d", finalTunnels)
 	}
 }

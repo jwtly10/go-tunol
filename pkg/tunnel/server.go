@@ -24,28 +24,34 @@ type Server struct {
 	mu     sync.Mutex
 	logger *slog.Logger
 	cfg    *config.ServerConfig
+	done   chan struct{} // Signal for cleanup goroutine
 }
 
 type Tunnel struct {
-	ID        string
-	LocalPort int
-	WSConn    *websocket.Conn
-	Path      string // For local dev & pre-subdomain routing
-	UrlPrefix string // For subdomain routing
-	Created   time.Time
+	ID           string
+	LocalPort    int
+	WSConn       *websocket.Conn
+	Path         string    // For local dev & pre-subdomain routing
+	UrlPrefix    string    // For subdomain routing
+	LastActivity time.Time // For tracking healthy connections
+	Created      time.Time
 }
 
 func NewServer(logger *slog.Logger, cfg *config.ServerConfig) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
-	return &Server{
+	s := &Server{
 		tunnels:         make(map[string]*Tunnel),
 		pendingRequests: make(map[string]chan *HTTPResponse),
 
 		logger: logger,
 		cfg:    cfg,
 	}
+
+	go s.cleanupLoop()
+
+	return s
 }
 
 func (s *Server) Handler() http.Handler {
@@ -53,11 +59,57 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) handleWS(ws *websocket.Conn) {
+	defer func() {
+		s.mu.Lock()
+		// Clean up all tunnels associated with this connection
+		for id, tunnel := range s.tunnels {
+			if tunnel.WSConn == ws {
+				s.logger.Info("cleaning up disconnected tunnel", "id", id, "total", len(s.tunnels)-1)
+				tunnel.WSConn.Close()
+				delete(s.tunnels, id)
+
+				// Clean up any pending requests for this tunnel
+				for reqID, ch := range s.pendingRequests {
+					if strings.HasPrefix(reqID, id) {
+						close(ch)
+						delete(s.pendingRequests, reqID)
+					}
+				}
+			}
+		}
+		s.mu.Unlock()
+	}()
+
 	for {
 		var msg Message
 		if err := websocket.JSON.Receive(ws, &msg); err != nil {
-			s.logger.Error("failed to recieve websocket message", "error", err)
-			return
+			var id string
+			for _, tunnel := range s.tunnels {
+				if tunnel.WSConn == ws {
+					id = tunnel.ID
+				}
+			}
+			if err == io.EOF {
+				s.logger.Info("client disconnected", "id", id, "error", err)
+			} else {
+				s.logger.Info("websocket error", "id", id, "error", err)
+			}
+			return // Trigger deferred clean up
+		}
+
+		if msg.Type == MessageTypeHTTPResponse {
+			var resp HTTPResponse
+			if b, err := json.Marshal(msg.Payload); err == nil {
+				if err := json.Unmarshal(b, &resp); err == nil {
+					s.mu.Lock()
+					for _, tunnel := range s.tunnels {
+						if tunnel.WSConn == ws {
+							tunnel.LastActivity = time.Now()
+						}
+					}
+					s.mu.Unlock()
+				}
+			}
 		}
 
 		switch msg.Type {
@@ -84,10 +136,12 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 			id := generateID()
 
 			t := &Tunnel{
-				ID:        id,
-				LocalPort: req.LocalPort,
-				WSConn:    ws,
-				Path:      s.cfg.Scheme + "://" + s.cfg.Host + ":" + s.cfg.Port + "/" + id,
+				ID:           id,
+				LocalPort:    req.LocalPort,
+				WSConn:       ws,
+				Path:         s.cfg.Scheme + "://" + s.cfg.Host + ":" + s.cfg.Port + "/" + id,
+				LastActivity: time.Now(),
+				Created:      time.Now(),
 			}
 
 			s.mu.Lock()
@@ -105,7 +159,7 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 				s.logger.Error("failed to send tunnel response", "error", err)
 			}
 
-			s.logger.Info("new tunnel registered", "id", id, "local_port", req.LocalPort, "url", t.Path)
+			s.logger.Info("new tunnel registered", "totalTunnels", len(s.tunnels), "id", id, "localPort", req.LocalPort, "url", t.Path)
 
 		case MessageTypeHTTPResponse:
 			s.logger.Info("received http response from tunnel", "payload", msg.Payload)
@@ -224,6 +278,54 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write(resp.Body)
 	case <-time.After(5 * time.Second):
 		http.Error(w, "Request timed out", http.StatusGatewayTimeout)
+	}
+}
+
+// Shutdown provides a way to gracefully shutdown the server
+func (s *Server) Shutdown() {
+	close(s.done)
+	s.cleanupDeadConnections()
+}
+
+// cleanupLoop periodically checks for dead connections and cleans them up
+func (s *Server) cleanupLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.cleanupDeadConnections()
+		case <-s.done:
+			return
+		}
+	}
+}
+
+// isConnClosed pings the websocket connection to check if it's still alive
+func (s *Server) isConnClosed(ws *websocket.Conn) bool {
+	err := websocket.JSON.Send(ws, Message{Type: MessageTypePing})
+	return err != nil
+}
+
+func (s *Server) cleanupDeadConnections() {
+	s.logger.Debug("running cleanup dead connections")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for id, tunnel := range s.tunnels {
+		if s.isConnClosed(tunnel.WSConn) {
+			s.logger.Info("removing dead tunnel connection", "id", id)
+			delete(s.tunnels, id)
+
+			// Clean up any pending requests for this tunnel
+			for reqID, ch := range s.pendingRequests {
+				if strings.HasPrefix(reqID, id) {
+					close(ch)
+					delete(s.pendingRequests, reqID)
+				}
+			}
+		}
 	}
 }
 
