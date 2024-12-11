@@ -17,6 +17,10 @@ func main() {
 		fmt.Fprintf(w, "Hello from local server! Full raw Path: %s\n", r.URL.Path)
 	})
 
+	http.HandleFunc("/fail", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Failed request", http.StatusInternalServerError)
+	})
+
 	http.HandleFunc("/api/test", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "API Test endpoint reached! Method: %s\n", r.Method)
 	})
