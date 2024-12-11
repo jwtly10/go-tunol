@@ -214,6 +214,15 @@ func (c *client) handleMessages(t *tunnelConn) {
 					return
 				}
 
+				// Set the error message as 30 chars of the body, if status not OK
+				var errMsg string
+				if resp.StatusCode > 400 { // Some error status
+					errMsg = string(body[:30])
+					if len(body) > 30 {
+						errMsg += "..."
+					}
+				}
+
 				// Emit the event to the caller
 				if c.events != nil {
 					c.events(RequestEvent{
@@ -222,6 +231,7 @@ func (c *client) handleMessages(t *tunnelConn) {
 						Path:      httpReq.Path,
 						Status:    resp.StatusCode,
 						Duration:  time.Since(startTime),
+						Error:     errMsg,
 						Timestamp: startTime,
 					})
 				}

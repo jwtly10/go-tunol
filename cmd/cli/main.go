@@ -196,7 +196,7 @@ func (a *App) render() string {
 
 	// Tunnels Section
 	b.WriteString(color.Bold.Sprint("📡 TUNNELS\n"))
-	// Nice to have - sort the urls so they dont change on render (maps pseudo random order)
+	// Nice to have - sort the urls so they don't change on render (maps pseudo random order)
 	var tunnelIDs []string
 	for id := range a.tunnels {
 		tunnelIDs = append(tunnelIDs, id)
@@ -248,10 +248,22 @@ func (a *App) render() string {
 		start = 6
 	}
 	for i := len(a.commonLogs) - 1; i >= len(a.commonLogs)-start && i >= 0; i-- {
-		fmt.Printf("%v", a.commonLogs[i])
 		log := a.commonLogs[i]
 		statusSymbol := color.Green.Sprint("✓")
-		logLine := fmt.Sprintf("   [%d] %d %s    %-15s %-5dms %s",
+
+		// Update status symbol depending on req
+		if log.isError {
+			statusSymbol = color.Red.Sprint("✗")
+		} else if log.status >= 400 {
+			statusSymbol = color.Yellow.Sprint("!")
+		}
+
+		// If path is empty, set it to root
+		if log.path == "" {
+			log.path = "/"
+		}
+
+		logLine := fmt.Sprintf("   [:%d] %d %s    %s    %dms %s",
 			log.port,
 			log.status,
 			log.method,
@@ -259,14 +271,14 @@ func (a *App) render() string {
 			log.duration,
 			statusSymbol)
 
-		if log.isError {
-			statusSymbol = color.Red.Sprint("✗")
-			logLine += " Error: " + log.error
-		} else if log.status >= 400 {
-			statusSymbol = color.Yellow.Sprint("!")
-		}
+		// TODO: There is an issue with setting the raw body error msg
+		// Theres an additional \n being rendered, for now will just remove
+		//if log.isError && log.error != "" {
+		//	logLine = fmt.Sprintf("%s ERROR: %s", logLine, log.error)
+		//}
 
-		b.WriteString(logLine + "\n")
+		b.WriteString(logLine)
+		b.Write([]byte("\n"))
 	}
 
 	// Footer
@@ -292,7 +304,7 @@ func main() {
 	app := NewApp([]int(ports), logger)
 
 	// Initialize tunnels
-	// If we cant init the tunnels correct we stop running the cli
+	// If we cant init the tunnels correctly we stop running the cli
 	if errs := app.initTunnels(); len(errs) != 0 {
 		fmt.Println("Error initializing tunnels:")
 		for _, err := range errs {
