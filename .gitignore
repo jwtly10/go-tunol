@@ -21,3 +21,6 @@ go.work.sum
 .env
 todo.md
 .idea
+
+# DB file
+tunol

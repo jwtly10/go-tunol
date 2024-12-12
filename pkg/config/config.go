@@ -7,20 +7,36 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// TODO: Clean up the naming of all these hosts, ports etc, and consolidate it
+// TODO: We use have multiple references to urls in different formats.
+
 type Config struct {
-	Server ServerConfig
-	Client ClientConfig
+	Server   ServerConfig
+	Client   ClientConfig
+	Database DatabaseConfig
 }
 
 type ServerConfig struct {
+	URL    string
 	Host   string
 	Port   string
 	Scheme string
+	Auth   AuthConfig
 }
 
 type ClientConfig struct {
 	Url    string
 	Origin string
+}
+
+type DatabaseConfig struct {
+	Path string
+}
+
+type AuthConfig struct {
+	GithubClientId     string `env:"GITHUB_CLIENT_ID" required:"true"`
+	GithubClientSecret string `env:"GITHUB_CLIENT_SECRET" required:"true"`
+	ServerHost         string `env:"SERVER_HOST" required:"true"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -34,8 +50,10 @@ func LoadConfig() (*Config, error) {
 	host := getOrDefault("SERVER_HOST", "localhost")
 	scheme := getOrDefault("SERVER_SCHEME", "http")
 	port := getOrDefault("SERVER_PORT", "8001")
+	serverUrl := getOrDefault("SERVER_URL", fmt.Sprintf("%s://%s:%s", scheme, host, port))
 
 	cfg.Server = ServerConfig{
+		URL:    serverUrl,
 		Host:   host,
 		Port:   port,
 		Scheme: scheme,
@@ -51,6 +69,27 @@ func LoadConfig() (*Config, error) {
 	cfg.Client = ClientConfig{
 		Url:    url,
 		Origin: origin,
+	}
+
+	// Auth configuration
+	githubClientId, err := getOrError("GITHUB_CLIENT_ID")
+	if err != nil {
+		return nil, err
+	}
+	githubClientSecret, err := getOrError("GITHUB_CLIENT_SECRET")
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.Server.Auth = AuthConfig{
+		GithubClientId:     githubClientId,
+		GithubClientSecret: githubClientSecret,
+	}
+
+	// Database configuration
+	dbPath := getOrDefault("DATABASE_PATH", "tunol")
+	cfg.Database = DatabaseConfig{
+		Path: dbPath,
 	}
 
 	return cfg, nil
