@@ -6,7 +6,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/require"
 	"html/template"
-	"io/ioutil"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +24,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 
 	// Read and execute all migrations
 	migrationsDir := "../../pkg/db/migrations"
-	files, err := ioutil.ReadDir(migrationsDir)
+	files, err := os.ReadDir(migrationsDir)
 	require.NoError(t, err)
 
 	for _, file := range files {
@@ -34,7 +33,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 		}
 
 		migrationPath := filepath.Join(migrationsDir, file.Name())
-		migrationSQL, err := ioutil.ReadFile(migrationPath)
+		migrationSQL, err := os.ReadFile(migrationPath)
 		require.NoError(t, err)
 
 		_, err = db.Exec(string(migrationSQL))
