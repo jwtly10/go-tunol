@@ -14,7 +14,7 @@ import (
 	"github.com/jwtly10/go-tunol/pkg/tunnel"
 )
 
-func setupRoutes(mux *http.ServeMux, t *template.Template, authMiddleware *auth.AuthMiddleware, dashboardHandler *auth.DashboardHandler, authHandler *auth.AuthHandler) {
+func setupWebRoutes(mux *http.ServeMux, t *template.Template, authMiddleware *auth.AuthMiddleware, dashboardHandler *auth.DashboardHandler, authHandler *auth.AuthHandler) {
 	// Public routes
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
@@ -80,7 +80,7 @@ func main() {
 
 	// Setup mux and routes
 	mux := http.NewServeMux()
-	setupRoutes(mux, templates, authMiddleware, dashboardHandler, authHandler)
+	setupWebRoutes(mux, templates, authMiddleware, dashboardHandler, authHandler)
 
 	// Handle tunnel requests
 	mux.HandleFunc("/tunnel/", func(w http.ResponseWriter, r *http.Request) {
