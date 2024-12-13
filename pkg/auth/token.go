@@ -2,6 +2,7 @@ package auth
 
 import (
 	"database/sql"
+	"errors"
 	"github.com/google/uuid"
 	"time"
 )
@@ -12,10 +13,14 @@ type Token struct {
 	Hash        string
 	PlainToken  string // Reminder, this is just to temporarily store the plain token, so we can return it to user
 	Description string
-	LastUsed    time.Time
+	LastUsed    *time.Time // May be nil if never used
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
-	RevokedAt   *time.Time
+	RevokedAt   *time.Time // May be nil if not revoked
+}
+
+func (t *Token) IsExpired() bool {
+	return time.Now().After(t.ExpiresAt)
 }
 
 type TokenService struct {
@@ -54,26 +59,52 @@ func (s *TokenService) CreateToken(userId int64, description string, validity ti
 	}
 	token.ID = id
 
+	// If we successfully created a token, we should revoke all other tokens for this user
+	// as the user can only have one at a time
+	_, err = s.db.Exec(`UPDATE tokens SET revoked_at = ? WHERE user_id = ? AND id != ?`, time.Now(), userId, id)
+	if err != nil {
+		return nil, err
+	}
+
 	return token, nil
 }
 
 func (s *TokenService) ValidateToken(plainToken string) (bool, error) {
 	hash := HashToken(plainToken)
+	var token Token
+	if err := s.db.QueryRow(`SELECT
+    id, user_id, token_hash, description, last_used, created_at, expires_at, revoked_at
+	FROM tokens WHERE token_hash = ?`, hash).Scan(
+		&token.ID,
+		&token.UserId,
+		&token.Hash,
+		&token.Description,
+		&token.LastUsed,
+		&token.CreatedAt,
+		&token.ExpiresAt,
+		&token.RevokedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+	}
 
-	var expiresAt time.Time
-	err := s.db.QueryRow(`
-        SELECT expires_at FROM tokens 
-        WHERE token_hash = ? AND revoked_at IS NULL
-    `, hash).Scan(&expiresAt)
-
-	if err == sql.ErrNoRows {
+	// Set as revoked if expired
+	if time.Now().After(token.ExpiresAt) {
+		_, err := s.db.Exec(`UPDATE tokens SET revoked_at = ? WHERE id = ?`, time.Now(), token.ID)
+		if err != nil {
+			return false, err
+		}
 		return false, nil
 	}
+
+	// Set last used
+	_, err := s.db.Exec(`UPDATE tokens SET last_used = ? WHERE id = ?`, time.Now(), token.ID)
 	if err != nil {
 		return false, err
 	}
 
-	return time.Now().Before(expiresAt), nil
+	return token.RevokedAt == nil, nil
 }
 
 func (s *TokenService) ListUserTokens(userID int64) ([]Token, error) {
@@ -97,7 +128,7 @@ func (s *TokenService) ListUserTokens(userID int64) ([]Token, error) {
 			return nil, err
 		}
 		if lastUsed.Valid {
-			t.LastUsed = lastUsed.Time
+			t.LastUsed = &lastUsed.Time
 		}
 		if revokedAt.Valid {
 			t.RevokedAt = &revokedAt.Time
@@ -105,8 +136,4 @@ func (s *TokenService) ListUserTokens(userID int64) ([]Token, error) {
 		tokens = append(tokens, t)
 	}
 	return tokens, nil
-}
-
-func (t *Token) IsExpired() bool {
-	return time.Now().After(t.ExpiresAt)
 }

@@ -56,6 +56,8 @@ func (m *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
+		m.logger.Info("User authenticated", "user", user.GithubUsername)
+
 		ctx := context.WithValue(r.Context(), "user", user)
 		ctx = context.WithValue(ctx, "session", session)
 

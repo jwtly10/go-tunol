@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"fmt"
+	"encoding/json"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -25,7 +25,6 @@ func NewDashboardHandler(templates *template.Template, tokenService *TokenServic
 // HandleDashboard shows the main dashboard page
 func (h *DashboardHandler) HandleDashboard(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value("user").(*User)
-
 	tokens, err := h.tokenService.ListUserTokens(user.ID)
 	if err != nil {
 		h.logger.Error("Failed to list tokens", "error", err)
@@ -38,10 +37,14 @@ func (h *DashboardHandler) HandleDashboard(w http.ResponseWriter, r *http.Reques
 		"Tokens": tokens,
 	}
 
-	err = h.templates.ExecuteTemplate(w, "layout.html", data)
-	if err != nil {
+	h.logger.Info("Rendering dashboard",
+		"userID", user.ID,
+		"tokenCount", len(tokens))
+
+	if err := h.templates.ExecuteTemplate(w, "layout.html", data); err != nil {
 		h.logger.Error("Failed to render template", "error", err)
 		http.Error(w, "Failed to render page", http.StatusInternalServerError)
+		return
 	}
 }
 
@@ -53,7 +56,6 @@ func (h *DashboardHandler) HandleCreateToken(w http.ResponseWriter, r *http.Requ
 	}
 
 	user := r.Context().Value("user").(*User)
-
 	description := r.FormValue("description")
 	if description == "" {
 		http.Error(w, "Description is required", http.StatusBadRequest)
@@ -67,57 +69,8 @@ func (h *DashboardHandler) HandleCreateToken(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	data := map[string]interface{}{
-		"User":  user,
-		"Token": token,
-	}
-
-	err = h.templates.ExecuteTemplate(w, "token_created.html", data)
-	if err != nil {
-		h.logger.Error("Failed to render template", "error", err)
-		http.Error(w, "Failed to render page", http.StatusInternalServerError)
-	}
-}
-
-// HandleRevokeToken handles revoking an existing token
-func (h *DashboardHandler) HandleRevokeToken(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	user := r.Context().Value("user").(*User)
-	tokenID := r.URL.Path[len("/dashboard/tokens/") : len(r.URL.Path)-len("/revoke")]
-
-	err := h.tokenService.RevokeToken(tokenID, user.ID)
-	if err != nil {
-		h.logger.Error("Failed to revoke token", "error", err, "tokenID", tokenID)
-		http.Error(w, "Failed to revoke token", http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
-}
-
-func (s *TokenService) RevokeToken(tokenID string, userID int64) error {
-	result, err := s.db.Exec(`
-        UPDATE tokens 
-        SET revoked_at = ? 
-        WHERE id = ? AND user_id = ?
-    `, time.Now(), tokenID, userID)
-
-	if err != nil {
-		return err
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rows == 0 {
-		return fmt.Errorf("token not found or unauthorized")
-	}
-
-	return nil
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"token": token.PlainToken,
+	})
 }

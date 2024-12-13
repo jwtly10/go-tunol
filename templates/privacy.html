@@ -1,0 +1,69 @@
+{{define "privacy"}}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>go-tunol - Privacy Policy</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="flex flex-col min-h-screen bg-gray-50">
+<div class="flex-grow max-w-3xl mx-auto px-4 py-12">
+    <div class="bg-white rounded-lg shadow-lg p-8">
+        <h1 class="text-3xl font-semibold text-gray-900 mb-8">Privacy Policy</h1>
+
+        <div class="space-y-6 text-gray-600">
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">1. Information We Collect</h2>
+                <p>We collect minimal information to provide our service:</p>
+                <ul class="list-disc pl-5 space-y-2 mt-2">
+                    <li>GitHub username (through GitHub OAuth authentication)</li>
+                    <li>Basic account management information</li>
+                    <li>Service usage metrics (such as connection times and API token creation)</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">2. Data Privacy in Tunneling</h2>
+                <p>We do not monitor, store, or log any data that passes through our tunneling service. All proxied data remains private and is not tracked or stored by go-tunol.</p>
+            </section>
+
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">3. How We Use Information</h2>
+                <p>The information we collect is used solely for:</p>
+                <ul class="list-disc pl-5 space-y-2 mt-2">
+                    <li>User authentication and account management</li>
+                    <li>Service provision and maintenance</li>
+                    <li>Security and fraud prevention</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">4. Data Sharing</h2>
+                <p>We do not sell, trade, or otherwise transfer your information to third parties. The only exception is GitHub, which we use for authentication purposes.</p>
+            </section>
+
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">5. Security</h2>
+                <p>We implement appropriate security measures to protect your information. However, no method of transmission over the internet is 100% secure, and we cannot guarantee absolute security.</p>
+            </section>
+
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">6. Your Rights</h2>
+                <p>You have the right to:</p>
+                <ul class="list-disc pl-5 space-y-2 mt-2">
+                    <li>Access your personal information</li>
+                    <li>Request deletion of your account and associated data</li>
+                </ul>
+            </section>
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-gray-200 text-sm text-gray-500">
+            <p>Last updated: December 13, 2024</p>
+<!--            <p class="mt-2">Questions about our Privacy Policy? <a href="#" class="text-blue-500 hover:text-blue-600">Contact us</a></p>-->
+        </div>
+    </div>
+</div>
+
+{{template "footer" .}}
+</body>
+</html>
+{{end}}

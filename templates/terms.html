@@ -1,0 +1,65 @@
+{{define "terms"}}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>go-tunol - Terms of Service</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="flex flex-col min-h-screen bg-gray-50">
+<div class="flex-grow max-w-3xl mx-auto px-4 py-12">
+    <div class="bg-white rounded-lg shadow-lg p-8">
+        <h1 class="text-3xl font-semibold text-gray-900 mb-8">Terms of Service</h1>
+
+        <div class="space-y-6 text-gray-600">
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">1. Service Description</h2>
+                <p>go-tunol provides a secure tunneling service that allows users to expose local servers to the internet. The service is provided "as is" and "as available" without warranties of any kind.</p>
+            </section>
+
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">2. User Responsibilities</h2>
+                <ul class="list-disc pl-5 space-y-2">
+                    <li>You are responsible for all activity that occurs under your account</li>
+                    <li>You must not use the service for any illegal purposes</li>
+                    <li>You must not attempt to circumvent any security features</li>
+                    <li>You must not use the service to transmit malicious code or conduct attacks</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">3. Service Limitations</h2>
+                <p>We reserve the right to suspend or terminate service to any user for any reason, including but not limited to violation of these terms or abuse of the service.</p>
+            </section>
+
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">4. Acceptable Use</h2>
+                <p>The service may only be used for lawful purposes. Users may not use go-tunol for:</p>
+                <ul class="list-disc pl-5 space-y-2 mt-2">
+                    <li>Distribution of malware or viruses</li>
+                    <li>Unauthorized access to systems or networks</li>
+                    <li>Distribution of illegal content</li>
+                    <li>Spam or unsolicited mass communication</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">5. Disclaimer of Warranties</h2>
+                <p>THE SERVICE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND. WE DO NOT GUARANTEE THAT THE SERVICE WILL BE UNINTERRUPTED, SECURE, OR ERROR-FREE.</p>
+            </section>
+
+            <section>
+                <h2 class="text-xl font-semibold text-gray-900 mb-3">6. Changes to Terms</h2>
+                <p>We reserve the right to modify these terms at any time. Continued use of the service after such modifications constitutes acceptance of the new terms.</p>
+            </section>
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-gray-200 text-sm text-gray-500">
+            <p>Last updated: December 13, 2024</p>
+<!--            <p class="mt-2">Questions about our Terms of Service? <a href="#" class="text-blue-500 hover:text-blue-600">Contact us</a></p>-->
+        </div>
+    </div>
+</div>
+{{template "footer" .}}
+</body>
+</html>
+{{end}}

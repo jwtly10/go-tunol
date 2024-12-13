@@ -14,13 +14,28 @@ import (
 	"github.com/jwtly10/go-tunol/pkg/tunnel"
 )
 
-func setupRoutes(mux *http.ServeMux, authMiddleware *auth.AuthMiddleware, dashboardHandler *auth.DashboardHandler, authHandler *auth.AuthHandler) {
+func setupRoutes(mux *http.ServeMux, t *template.Template, authMiddleware *auth.AuthMiddleware, dashboardHandler *auth.DashboardHandler, authHandler *auth.AuthHandler) {
 	// Public routes
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/auth/login", http.StatusTemporaryRedirect)
+		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
+	})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
 	})
 
-	mux.HandleFunc("/auth/login", authHandler.HandleLogin)
+	mux.HandleFunc("/terms", func(w http.ResponseWriter, r *http.Request) {
+		if err := t.ExecuteTemplate(w, "terms", nil); err != nil {
+			http.Error(w, "Failed to render page", http.StatusInternalServerError)
+		}
+	})
+	mux.HandleFunc("/privacy", func(w http.ResponseWriter, r *http.Request) {
+		if err := t.ExecuteTemplate(w, "privacy", nil); err != nil {
+			http.Error(w, "Failed to render page", http.StatusInternalServerError)
+		}
+	})
+
+	mux.HandleFunc("/login", authHandler.HandleLogin)
 	mux.HandleFunc("/auth/logout", authHandler.HandleLogout)
 
 	mux.HandleFunc("/auth/github/login", authHandler.HandleGitHubLogin)
@@ -29,7 +44,6 @@ func setupRoutes(mux *http.ServeMux, authMiddleware *auth.AuthMiddleware, dashbo
 	// Protected routes
 	mux.Handle("/dashboard", authMiddleware.RequireAuth(http.HandlerFunc(dashboardHandler.HandleDashboard)))
 	mux.Handle("/dashboard/tokens", authMiddleware.RequireAuth(http.HandlerFunc(dashboardHandler.HandleCreateToken)))
-	mux.Handle("/dashboard/tokens/", authMiddleware.RequireAuth(http.HandlerFunc(dashboardHandler.HandleRevokeToken)))
 }
 
 func main() {
@@ -66,7 +80,7 @@ func main() {
 
 	// Setup mux and routes
 	mux := http.NewServeMux()
-	setupRoutes(mux, authMiddleware, dashboardHandler, authHandler)
+	setupRoutes(mux, templates, authMiddleware, dashboardHandler, authHandler)
 
 	// Handle tunnel requests
 	mux.HandleFunc("/tunnel/", func(w http.ResponseWriter, r *http.Request) {
