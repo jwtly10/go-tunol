@@ -4,9 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"github.com/gookit/color"
+	"github.com/jwtly10/go-tunol/pkg/auth"
 	"github.com/jwtly10/go-tunol/pkg/client"
 	"github.com/jwtly10/go-tunol/pkg/config"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -72,6 +74,8 @@ type App struct {
 	commonLogs []logEntry
 	stats      stats
 	mu         sync.Mutex // Protect concurrent access to app state
+
+	cfg *config.ClientConfig
 }
 
 type stats struct {
@@ -98,12 +102,13 @@ type logEntry struct {
 	isError   bool
 }
 
-func NewApp(ports []int, logger *slog.Logger) *App {
+func NewApp(ports []int, logger *slog.Logger, cfg *config.ClientConfig) *App {
 	return &App{
 		tunnels:    make(map[string]*tunnelState),
 		ports:      ports,
 		logger:     logger,
 		commonLogs: make([]logEntry, 0),
+		cfg:        cfg,
 	}
 }
 
@@ -116,13 +121,8 @@ func (a *App) initTunnels() []initError {
 	var errs []initError
 
 	for _, port := range a.ports {
-		cfg := &config.ClientConfig{
-			Url:    "ws://localhost:8001/tunnel/",
-			Origin: "http://localhost",
-		}
-
 		// Create client with event handler
-		c := client.NewClient(cfg, a.logger, func(event client.Event) {
+		c := client.NewClient(a.cfg, a.logger, func(event client.Event) {
 			a.handleEvent(port, event)
 		})
 
@@ -326,13 +326,80 @@ func clearScreen() {
 	fmt.Print("\033[H\033[2J")
 }
 
+func (a *App) loginCommand(token string) error {
+	if err := validateTokenOnServer(token, a.cfg.HttpUrl); err != nil {
+		return fmt.Errorf("failed to validate token: %w", err)
+	}
+
+	store, err := auth.NewTokenStore()
+	if err != nil {
+		return fmt.Errorf("failed to create token store: %w", err)
+	}
+
+	if err := store.StoreToken(token); err != nil {
+		return fmt.Errorf("failed to store token: %w", err)
+	}
+
+	a.logger.Info("Login successful")
+	fmt.Println("Login successful. You can now tunnel ports with 'tunol [--port <port>]'")
+	return nil
+}
+
+func validateTokenOnServer(token string, serverHost string) error {
+	// Validate token format (should be two UUIDs joined with a hyphen)
+	// Expected format: UUID-UUID (where each UUID is 36 chars)
+	if len(token) != 73 { // 36 + 1 + 36
+		return fmt.Errorf("invalid token format: incorrect length")
+	}
+
+	c := &http.Client{}
+	req, err := http.NewRequest("GET", serverHost+"/auth/validate", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to validate token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("invalid token")
+	}
+
+	return nil
+}
+
 func main() {
 	var ports portFlags
+	var loginToken string
+
 	flag.Var(&ports, "port", "Port to tunnel (can be specified multiple times)")
+	flag.StringVar(&loginToken, "login", "", "Login with the provided token")
 	flag.Parse()
 
+	logger := setupCLILogger()
+	cfg := &config.ClientConfig{
+		Url:     "ws://localhost:8001/tunnel/",
+		HttpUrl: "http://localhost:8001/",
+		Origin:  "http://localhost",
+	}
+	app := NewApp([]int(ports), logger, cfg)
+
+	if loginToken != "" {
+		if err := app.loginCommand(loginToken); err != nil {
+			fmt.Printf("Login failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if len(ports) == 0 {
-		fmt.Println("Usage: tunol --port <port> [--port <port>...]")
+		fmt.Println("Usage:")
+		fmt.Println("  tunol --port <port> [--port <port>...]")
+		fmt.Println("  tunol --login <token>")
 		os.Exit(1)
 	}
 
@@ -341,8 +408,32 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := setupCLILogger()
-	app := NewApp([]int(ports), logger)
+	// Check if logged in when running tunnel commands
+	store, err := auth.NewTokenStore()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	token, err := store.GetToken()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if token == "" {
+		fmt.Println("Error: Not logged in. Please run 'tunol --login <token>' first")
+		os.Exit(1)
+	}
+
+	// Now we should validate the token before running the tunnels, just to give a nice error message
+	if err := validateTokenOnServer(token, cfg.HttpUrl); err != nil {
+		fmt.Printf("Error: Token is no longer valid. Please run 'tunol --login <token>' again. (Reason: %v)\n", err)
+		os.Exit(1)
+	}
+
+	// Now we have the token, we should set the app config to use it
+	app.cfg.Token = token
 
 	// Initialize tunnels
 	// If we cant init the tunnels correctly we stop running the cli

@@ -91,6 +91,10 @@ func (s *TokenService) ValidateToken(plainToken string) (bool, error) {
 		}
 	}
 
+	if token.RevokedAt != nil {
+		return false, fmt.Errorf("token has been revoked")
+	}
+
 	// Set as revoked if expired
 	if time.Now().After(token.ExpiresAt) {
 		_, err := s.db.Exec(`UPDATE tokens SET revoked_at = ? WHERE id = ?`, time.Now(), token.ID)
@@ -106,7 +110,7 @@ func (s *TokenService) ValidateToken(plainToken string) (bool, error) {
 		return false, fmt.Errorf("failed to update last used: %w", err)
 	}
 
-	return token.RevokedAt == nil, nil
+	return true, nil
 }
 
 func (s *TokenService) ListUserTokens(userID int64) ([]Token, error) {

@@ -37,6 +37,7 @@ func setupWebRoutes(mux *http.ServeMux, t *template.Template, authMiddleware *au
 
 	mux.HandleFunc("/login", authHandler.HandleLogin)
 	mux.HandleFunc("/auth/logout", authHandler.HandleLogout)
+	mux.HandleFunc("/auth/validate", authHandler.HandleValidateToken)
 
 	mux.HandleFunc("/auth/github/login", authHandler.HandleGitHubLogin)
 	mux.HandleFunc("/auth/github/callback", authHandler.HandleGitHubCallback)

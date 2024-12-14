@@ -255,3 +255,25 @@ func (h *AuthHandler) fetchGitHubUser(accessToken string) (*githubUser, error) {
 
 	return &user, nil
 }
+
+func (h *AuthHandler) HandleValidateToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Read the authorisation header and validate
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(w, "No token provided", http.StatusUnauthorized)
+		return
+	}
+
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	_, err := h.tokenService.ValidateToken(token)
+	if err != nil {
+		h.logger.Error("Failed to validate token", "error", err)
+		http.Error(w, fmt.Sprintf("Invalid token: %s", err), http.StatusInternalServerError)
+		return
+	}
+}
