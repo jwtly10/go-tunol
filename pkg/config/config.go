@@ -2,43 +2,36 @@ package config
 
 import (
 	"fmt"
-	"os"
-
 	"github.com/joho/godotenv"
+	"golang.org/x/net/websocket"
+	"os"
+	"strings"
 )
-
-// TODO: Clean up the naming of all these hosts, ports etc, and consolidate it
-// TODO: We use have multiple references to urls in different formats.
 
 type Config struct {
 	Server   ServerConfig
-	Client   ClientConfig
 	Database DatabaseConfig
 }
 
 type ServerConfig struct {
-	URL    string
-	Host   string
-	Port   string
-	Scheme string
-	Auth   AuthConfig
+	BaseURL string `env:"SERVER_URL" required:"true"`
+	Port    string `env:"SERVER_PORT"`
+	Auth    AuthConfig
 }
 
+// ClientConfig will be set by the CLI app
 type ClientConfig struct {
-	Url     string
-	HttpUrl string
-	Origin  string
-	Token   string // The token read from TODO: where should we store this?
+	ServerURL string
+	Token     string // The auth token set VIA --login
 }
 
 type DatabaseConfig struct {
-	Path string
+	Path string `env:"DB_PATH" required:"true"`
 }
 
 type AuthConfig struct {
 	GithubClientId     string `env:"GITHUB_CLIENT_ID" required:"true"`
 	GithubClientSecret string `env:"GITHUB_CLIENT_SECRET" required:"true"`
-	ServerHost         string `env:"SERVER_HOST" required:"true"`
 }
 
 func LoadConfig() (*Config, error) {
@@ -49,28 +42,12 @@ func LoadConfig() (*Config, error) {
 	cfg := &Config{}
 
 	// Server configuration
-	host := getOrDefault("SERVER_HOST", "localhost")
-	scheme := getOrDefault("SERVER_SCHEME", "http")
+	baseURL := getOrDefault("SERVER_URL", "http://localhost")
 	port := getOrDefault("SERVER_PORT", "8001")
-	serverUrl := getOrDefault("SERVER_URL", fmt.Sprintf("%s://%s:%s", scheme, host, port))
 
 	cfg.Server = ServerConfig{
-		URL:    serverUrl,
-		Host:   host,
-		Port:   port,
-		Scheme: scheme,
-	}
-
-	// Client configuration
-	url, err := getOrError("CLIENT_URL")
-	if err != nil {
-		return nil, err
-	}
-	origin := getOrDefault("CLIENT_ORIGIN", "http://localhost")
-
-	cfg.Client = ClientConfig{
-		Url:    url,
-		Origin: origin,
+		BaseURL: baseURL,
+		Port:    port,
 	}
 
 	// Auth configuration
@@ -89,12 +66,37 @@ func LoadConfig() (*Config, error) {
 	}
 
 	// Database configuration
-	dbPath := getOrDefault("DATABASE_PATH", "tunol")
+	dbPath := getOrDefault("DB_PATH", "tunol")
 	cfg.Database = DatabaseConfig{
 		Path: dbPath,
 	}
 
 	return cfg, nil
+}
+
+// Utility methods
+
+// HTTPURL returns the full HTTP URL of the server
+func (c *ServerConfig) HTTPURL() string {
+	baseURL := strings.TrimSuffix(c.BaseURL, "/")
+	if c.Port == "" {
+		return baseURL
+	}
+	return fmt.Sprintf("%s:%s", baseURL, c.Port)
+}
+
+// WebSocketURL returns the WebSocket URL (ws:// or wss://) of the server for the client to connect to
+func (c *ClientConfig) WebSocketURL() string {
+	wsURL := strings.TrimSuffix(c.ServerURL, "/")
+	wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
+	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
+	return wsURL + "/tunnel"
+}
+
+// NewWebSocketConfig creates a websocket.Config for CLI usage
+func (c *ClientConfig) NewWebSocketConfig() (*websocket.Config, error) {
+	// For CLI clients, we can use a simple static origin
+	return websocket.NewConfig(c.WebSocketURL(), "https://cli.tunol")
 }
 
 // getOrDefault returns the value of the environment variable with the given key

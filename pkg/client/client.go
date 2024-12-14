@@ -67,7 +67,7 @@ func (c *client) NewTunnel(localPort int) (Tunnel, error) {
 	}
 
 	// Create a manual ws config so we can add auth to handshake
-	wsConfig, err := websocket.NewConfig(c.cfg.Url, c.cfg.Origin)
+	wsConfig, err := c.cfg.NewWebSocketConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create websocket config: %w", err)
 	}

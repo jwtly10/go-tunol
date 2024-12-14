@@ -9,16 +9,34 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/jwtly10/go-tunol/pkg/config"
 	"github.com/jwtly10/go-tunol/pkg/tunnel"
 )
 
+func setupLogger() *slog.Logger {
+	opts := &slog.HandlerOptions{
+		AddSource: true,
+		Level:     slog.LevelDebug,
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.SourceKey {
+				source := a.Value.Any().(*slog.Source)
+				a.Value = slog.StringValue(source.File + ":" + strconv.Itoa(source.Line))
+			}
+			return a
+		},
+	}
+
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	return slog.New(handler)
+}
+
 func setupWebRoutes(mux *http.ServeMux, t *template.Template, authMiddleware *auth.AuthMiddleware, dashboardHandler *auth.DashboardHandler, authHandler *auth.AuthHandler) {
 	// Public routes
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
-	})
+	//mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	//	http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
+	//})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
@@ -48,7 +66,7 @@ func setupWebRoutes(mux *http.ServeMux, t *template.Template, authMiddleware *au
 }
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger := setupLogger()
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -83,13 +101,33 @@ func main() {
 	mux := http.NewServeMux()
 	setupWebRoutes(mux, templates, authMiddleware, dashboardHandler, authHandler)
 
-	// Handle tunnel requests
-	mux.HandleFunc("/tunnel/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Upgrade") == "websocket" {
-			tunnelServer.Handler().ServeHTTP(w, r)
-		} else {
-			tunnelServer.ServeHTTP(w, r)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Just so we can have a nice landing page on root URL
+		if r.URL.Path == "/" {
+			logger.Info("redirecting root request to login")
+			http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
+			return
 		}
+		logger.Debug("handling tunnel proxy request",
+			"path", r.URL.Path,
+			"method", r.Method,
+			"remote_addr", r.RemoteAddr)
+
+		// For all other paths (like /abc123/), try to handle as tunnel request
+		// the server will handle the request as needed
+		tunnelServer.ServeHTTP(w, r)
+	})
+
+	// Handle tunnel requests
+	mux.HandleFunc("/tunnel", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") != "websocket" {
+			logger.Warn("non-websocket request to /tunnel endpoint",
+				"remote_addr", r.RemoteAddr,
+				"method", r.Method)
+			http.Error(w, "Expected WebSocket connection", http.StatusBadRequest)
+			return
+		}
+		tunnelServer.Handler().ServeHTTP(w, r)
 	})
 
 	// Start server

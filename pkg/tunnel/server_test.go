@@ -25,9 +25,8 @@ func setupUnitTestEnv(t *testing.T) config.ServerConfig {
 	t.Helper()
 
 	return config.ServerConfig{
-		Host:   "localhost",
-		Port:   "8001",
-		Scheme: "http",
+		BaseURL: "http://localhost",
+		Port:    "8001",
 	}
 }
 

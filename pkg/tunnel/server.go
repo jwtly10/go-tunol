@@ -195,7 +195,7 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 				ID:           id,
 				LocalPort:    req.LocalPort,
 				WSConn:       ws,
-				Path:         s.cfg.Scheme + "://" + s.cfg.Host + ":" + s.cfg.Port + "/" + id,
+				Path:         s.cfg.HTTPURL() + "/" + id,
 				LastActivity: time.Now(),
 				Created:      time.Now(),
 			}
@@ -257,7 +257,7 @@ type HTTPResponse struct {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("received http request", "method", r.Method, "rawPath", r.URL.Path)
 
-	// The url will look like this // TODO: In future it will be subdomain based
+	// The url should look like this // TODO: In future it will be subdomain based
 	// http://localhost:8001/tunnel_id/some_external_path/and/maybe/more
 	tunnelId, realPath, err := extractTunnelIDAndPath(r.URL.String())
 	if err != nil {

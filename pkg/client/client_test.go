@@ -18,29 +18,25 @@ import (
 	"time"
 )
 
-func setupUnitTestEnv(t *testing.T) *config.Config {
+func setupUnitTestEnv(t *testing.T) (*config.ServerConfig, *config.ClientConfig) {
 	t.Helper()
 
-	cfg := config.Config{}
-
-	cfg.Server = config.ServerConfig{
-		Host:   "localhost",
-		Port:   "8001",
-		Scheme: "http",
+	s := config.ServerConfig{
+		BaseURL: "http://localhost",
+		Port:    "8001",
 	}
 
-	cfg.Client = config.ClientConfig{
-		Url:    "ws://localhost:8001",
-		Origin: "http://localhost",
+	c := config.ClientConfig{
+		ServerURL: "http://localhost:8001",
 	}
 
-	return &cfg
+	return &s, &c
 }
 
 // TestCanCreateTunnels tests that the client can create tunnels, using the systems auth process
 func TestCanCreateTunnels(t *testing.T) {
 	// Setup all dependencies needed for the flow
-	cfg := setupUnitTestEnv(t)
+	sCfg, cCfg := setupUnitTestEnv(t)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	db := utils.SetupTestDB(t)
 	tokenService := auth.NewTokenService(db)
@@ -63,17 +59,17 @@ func TestCanCreateTunnels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create token: %v", err)
 	}
-	cfg.Client.Token = token.PlainToken
+	cCfg.Token = token.PlainToken
 
 	// Set up test
-	server := tunnel.NewServer(tokenService, logger, &cfg.Server)
+	server := tunnel.NewServer(tokenService, logger, sCfg)
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
-	wsURL := strings.Replace(ts.URL, "http", "ws", 1)
-	cfg.Client.Url = wsURL
+	// update the client config to point to test server
+	cCfg.ServerURL = ts.URL
 
 	// Do test
-	client := NewClient(&cfg.Client, logger, func(event Event) {
+	client := NewClient(cCfg, logger, func(event Event) {
 		logger.Info("event", "event", event)
 	})
 	defer client.Close()
@@ -103,7 +99,7 @@ func TestCanCreateTunnels(t *testing.T) {
 // and correctly forward them to the local server
 func TestHandleIncomingRequests(t *testing.T) {
 	// Setup all dependencies needed for the flow
-	cfg := setupUnitTestEnv(t)
+	s, c := setupUnitTestEnv(t)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	db := utils.SetupTestDB(t)
 	tokenService := auth.NewTokenService(db)
@@ -126,9 +122,9 @@ func TestHandleIncomingRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create token: %v", err)
 	}
-	cfg.Client.Token = token.PlainToken
+	c.Token = token.PlainToken
 
-	server := tunnel.NewServer(tokenService, logger, &cfg.Server)
+	server := tunnel.NewServer(tokenService, logger, s)
 
 	// Create test HTTP server with ws support
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -142,19 +138,16 @@ func TestHandleIncomingRequests(t *testing.T) {
 
 	// Update server and client config to match generated test server
 	tsURL, _ := url.Parse(ts.URL)
-	cfg.Server.Host = tsURL.Hostname()
-	cfg.Server.Port = tsURL.Port()
-	cfg.Server.Scheme = tsURL.Scheme
-
-	wsURL := strings.Replace(ts.URL, "http", "ws", 1)
-	cfg.Client.Url = wsURL
+	s.BaseURL = tsURL.Scheme + "://" + tsURL.Hostname()
+	s.Port = tsURL.Port()
+	c.ServerURL = ts.URL
 
 	localServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("hello from local"))
 	}))
 	defer localServer.Close()
 
-	client := NewClient(&cfg.Client, logger, func(event Event) {
+	client := NewClient(c, logger, func(event Event) {
 		logger.Info("event", "event", event)
 	})
 	defer client.Close()
@@ -207,7 +200,7 @@ func TestClientAuthentication(t *testing.T) {
 	}
 
 	// Setup all dependencies needed for the flow
-	cfg := setupUnitTestEnv(t)
+	s, c := setupUnitTestEnv(t)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	db := utils.SetupTestDB(t)
 	tokenService := auth.NewTokenService(db)
@@ -235,21 +228,20 @@ func TestClientAuthentication(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Set the client token based on the test
-			cfg.Client.Token = tc.token
+			c.Token = tc.token
 
-			server := tunnel.NewServer(tokenService, logger, &cfg.Server)
+			server := tunnel.NewServer(tokenService, logger, s)
 
 			ts := httptest.NewServer(server.Handler())
 			defer ts.Close()
 
 			tsURL, _ := url.Parse(ts.URL)
-			cfg.Server.Host = tsURL.Hostname()
-			cfg.Server.Port = tsURL.Port()
-			cfg.Server.Scheme = tsURL.Scheme
-			cfg.Client.Url = strings.Replace(ts.URL, "http", "ws", 1)
+			s.BaseURL = tsURL.Scheme + "://" + tsURL.Hostname()
+			s.Port = tsURL.Port()
+			c.ServerURL = ts.URL
 
 			eventChan := make(chan Event, 1)
-			client := NewClient(&cfg.Client, logger, func(event Event) {
+			client := NewClient(c, logger, func(event Event) {
 				eventChan <- event
 			})
 			defer client.Close()
@@ -320,7 +312,7 @@ func TestClientRequestEvents(t *testing.T) {
 	}
 
 	// Setup all dependencies needed for the flow
-	cfg := setupUnitTestEnv(t)
+	s, c := setupUnitTestEnv(t)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	db := utils.SetupTestDB(t)
 	tokenService := auth.NewTokenService(db)
@@ -343,11 +335,11 @@ func TestClientRequestEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create token: %v", err)
 	}
-	cfg.Client.Token = token.PlainToken
+	c.Token = token.PlainToken
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			server := tunnel.NewServer(tokenService, logger, &cfg.Server)
+			server := tunnel.NewServer(tokenService, logger, s)
 
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Upgrade") == "websocket" {
@@ -359,10 +351,9 @@ func TestClientRequestEvents(t *testing.T) {
 			defer ts.Close()
 
 			tsURL, _ := url.Parse(ts.URL)
-			cfg.Server.Host = tsURL.Hostname()
-			cfg.Server.Port = tsURL.Port()
-			cfg.Server.Scheme = tsURL.Scheme
-			cfg.Client.Url = strings.Replace(ts.URL, "http", "ws", 1)
+			s.BaseURL = tsURL.Scheme + "://" + tsURL.Hostname()
+			s.Port = tsURL.Port()
+			c.ServerURL = ts.URL
 
 			var localServer *httptest.Server
 			if tc.localHandler != nil {
@@ -374,7 +365,7 @@ func TestClientRequestEvents(t *testing.T) {
 
 			eventChan := make(chan Event, 1)
 
-			client := NewClient(&cfg.Client, logger, func(event Event) {
+			client := NewClient(c, logger, func(event Event) {
 				eventChan <- event
 			})
 			defer client.Close()

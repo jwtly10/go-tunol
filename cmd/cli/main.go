@@ -327,7 +327,7 @@ func clearScreen() {
 }
 
 func (a *App) loginCommand(token string) error {
-	if err := validateTokenOnServer(token, a.cfg.HttpUrl); err != nil {
+	if err := validateTokenOnServer(token, a.cfg.ServerURL); err != nil {
 		return fmt.Errorf("failed to validate token: %w", err)
 	}
 
@@ -382,9 +382,7 @@ func main() {
 
 	logger := setupCLILogger()
 	cfg := &config.ClientConfig{
-		Url:     "ws://localhost:8001/tunnel/",
-		HttpUrl: "http://localhost:8001/",
-		Origin:  "http://localhost",
+		ServerURL: "http://localhost:8001",
 	}
 	app := NewApp([]int(ports), logger, cfg)
 
@@ -427,7 +425,7 @@ func main() {
 	}
 
 	// Now we should validate the token before running the tunnels, just to give a nice error message
-	if err := validateTokenOnServer(token, cfg.HttpUrl); err != nil {
+	if err := validateTokenOnServer(token, cfg.ServerURL); err != nil {
 		fmt.Printf("Error: Token is no longer valid. Please run 'tunol --login <token>' again. (Reason: %v)\n", err)
 		os.Exit(1)
 	}
