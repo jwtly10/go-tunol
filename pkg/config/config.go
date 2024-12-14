@@ -27,6 +27,7 @@ type ServerConfig struct {
 type ClientConfig struct {
 	Url    string
 	Origin string
+	Token  string // The token read from TODO: where should we store this?
 }
 
 type DatabaseConfig struct {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jwtly10/go-tunol/pkg/auth"
 	"github.com/jwtly10/go-tunol/pkg/config"
 	"golang.org/x/net/websocket"
 )
@@ -20,6 +21,7 @@ import (
 type Server struct {
 	tunnels         map[string]*Tunnel
 	pendingRequests map[string]chan *HTTPResponse
+	tokenService    *auth.TokenService
 
 	mu     sync.Mutex
 	logger *slog.Logger
@@ -37,13 +39,14 @@ type Tunnel struct {
 	Created      time.Time
 }
 
-func NewServer(logger *slog.Logger, cfg *config.ServerConfig) *Server {
+func NewServer(tokenService *auth.TokenService, logger *slog.Logger, cfg *config.ServerConfig) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 	s := &Server{
 		tunnels:         make(map[string]*Tunnel),
 		pendingRequests: make(map[string]chan *HTTPResponse),
+		tokenService:    tokenService,
 
 		logger: logger,
 		cfg:    cfg,
@@ -55,7 +58,57 @@ func NewServer(logger *slog.Logger, cfg *config.ServerConfig) *Server {
 }
 
 func (s *Server) Handler() http.Handler {
-	return websocket.Handler(s.handleWS)
+	return websocket.Handler(func(ws *websocket.Conn) {
+		// Authenticate WebSocket connection
+		if err := s.authenticateWebSocket(ws); err != nil {
+			s.logger.Error("websocket authentication failed", "error", err)
+			// Send error message before closing
+			errMsg := Message{
+				Type: MessageTypeError,
+				Payload: map[string]string{
+					"error": err.Error(),
+				},
+			}
+			err := websocket.JSON.Send(ws, errMsg)
+			if err != nil {
+				s.logger.Error("failed to send error message", "error", err)
+			}
+			ws.Close()
+			return
+		}
+
+		s.handleWS(ws)
+	})
+}
+
+func (s *Server) extractToken(r *http.Request) string {
+	token := r.Header.Get("Authorization")
+	if token != "" {
+		return strings.TrimPrefix(token, "Bearer ")
+	}
+
+	return ""
+}
+
+// authenticateWebSocket verifies the token during WebSocket upgrade
+func (s *Server) authenticateWebSocket(ws *websocket.Conn) error {
+	token := ""
+	if ws.Request() != nil {
+		token = s.extractToken(ws.Request())
+	}
+
+	if token == "" {
+		return fmt.Errorf("no token provided")
+	}
+
+	valid, err := s.tokenService.ValidateToken(token)
+	// We will never have an error without valid being false, so we can just handle that as is
+	// So if false, theres a specific error we may need to handle
+	if !valid {
+		return fmt.Errorf("invalid token: %v", err)
+	}
+
+	return nil
 }
 
 func (s *Server) handleWS(ws *websocket.Conn) {

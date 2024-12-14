@@ -114,14 +114,15 @@ type initError struct {
 
 func (a *App) initTunnels() []initError {
 	var errs []initError
+
 	for _, port := range a.ports {
 		cfg := &config.ClientConfig{
-			Url:    "ws://localhost:8001",
+			Url:    "ws://localhost:8001/tunnel/",
 			Origin: "http://localhost",
 		}
 
 		// Create client with event handler
-		c := client.NewClient(cfg, a.logger, func(event client.RequestEvent) {
+		c := client.NewClient(cfg, a.logger, func(event client.Event) {
 			a.handleEvent(port, event)
 		})
 
@@ -155,59 +156,70 @@ func (a *App) initTunnels() []initError {
 	return errs
 }
 
-func (a *App) handleEvent(port int, event client.RequestEvent) {
+func (a *App) handleEvent(port int, event client.Event) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	// If the connection has failed, log for user and kill CLI
-	if event.ConnectionFailed {
-		a.logger.Error("Connection to tunol server failed, shutting down", "port", port)
-		tunnelId := fmt.Sprintf("tunnel_%d", port)
-		if state, exists := a.tunnels[tunnelId]; exists {
-			state.isActive = false
-			state.lastErr = fmt.Errorf("connection to tunol server failed")
-		}
-
-		// Close all tunnels
-		for _, state := range a.tunnels {
-			if state.isActive {
-				state.tunnel.Close()
-			}
-		}
-
-		// The event contains an error message, so we log it
-		if event.Error != "" {
-			fmt.Println("Shutting down due to error:", event.Error)
-		}
-
+	switch event.Type {
+	case client.EventTypeError:
+		// If the connection has failed due to auth, log for user and kill CLI
+		// TODO: I guess the only time this would happen is it the tunnel has already been created and THEN the token expires....
+		// TODO: Handle in future, for now just log and close
+		fmt.Printf("There was an error during the tunnel session: %v\n", event.Payload.(client.ErrorEvent).Error)
 		os.Exit(1)
-	}
+	case client.EventTypeRequest:
+		// If the connection has failed (but not due to auth, some other http issue), log for user and kill CLI
+		if event.Payload.(client.RequestEvent).ConnectionFailed {
+			a.logger.Error("Connection to tunol server failed, shutting down", "port", port)
+			tunnelId := fmt.Sprintf("tunnel_%d", port)
+			if state, exists := a.tunnels[tunnelId]; exists {
+				state.isActive = false
+				state.lastErr = fmt.Errorf("connection to tunol server failed")
+			}
 
-	// Update stats
-	a.stats.requestCount++
-	if event.Status >= 500 || event.Error != "" {
-		a.stats.errorCount++
-	}
+			// Close all tunnels
+			for _, state := range a.tunnels {
+				if state.isActive {
+					state.tunnel.Close()
+				}
+			}
 
-	// Update average response time
-	duration := int(event.Duration.Milliseconds())
-	a.stats.avgResponseTime = (a.stats.avgResponseTime*a.stats.requestCount + duration) / (a.stats.requestCount + 1)
+			// The event contains an error message, so we log it
+			if event.Payload.(client.RequestEvent).Error != "" {
+				fmt.Println("Shutting down due to error:", event.Payload.(client.RequestEvent).Error)
+			}
 
-	// Add log entry
-	a.commonLogs = append(a.commonLogs, logEntry{
-		timestamp: time.Now(),
-		port:      port,
-		method:    event.Method,
-		path:      event.Path,
-		status:    event.Status,
-		duration:  duration,
-		error:     event.Error,
-		isError:   event.Status >= 500 || event.Error != "",
-	})
+			os.Exit(1)
+		}
 
-	// Keep only last 100 logs
-	if len(a.commonLogs) > 100 {
-		a.commonLogs = a.commonLogs[1:]
+		// Else we handle the request event
+
+		// Update stats
+		a.stats.requestCount++
+		if event.Payload.(client.RequestEvent).Status >= 500 || event.Payload.(client.RequestEvent).Error != "" {
+			a.stats.errorCount++
+		}
+
+		// Update average response time
+		duration := int(event.Payload.(client.RequestEvent).Duration.Milliseconds())
+		a.stats.avgResponseTime = (a.stats.avgResponseTime*a.stats.requestCount + duration) / (a.stats.requestCount + 1)
+
+		// Add log entry
+		a.commonLogs = append(a.commonLogs, logEntry{
+			timestamp: time.Now(),
+			port:      port,
+			method:    event.Payload.(client.RequestEvent).Method,
+			path:      event.Payload.(client.RequestEvent).Path,
+			status:    event.Payload.(client.RequestEvent).Status,
+			duration:  duration,
+			error:     event.Payload.(client.RequestEvent).Error,
+			isError:   event.Payload.(client.RequestEvent).Status >= 500 || event.Payload.(client.RequestEvent).Error != "",
+		})
+
+		// Keep only last 100 logs
+		if len(a.commonLogs) > 100 {
+			a.commonLogs = a.commonLogs[1:]
+		}
 	}
 }
 
@@ -321,6 +333,11 @@ func main() {
 
 	if len(ports) == 0 {
 		fmt.Println("Usage: tunol --port <port> [--port <port>...]")
+		os.Exit(1)
+	}
+
+	if len(ports) > 5 {
+		fmt.Println("Error: Maximum of 5 ports can be tunneled at once")
 		os.Exit(1)
 	}
 

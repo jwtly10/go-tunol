@@ -58,8 +58,7 @@ func TestTokenGeneration(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, token.PlainToken)
 	require.NotEmpty(t, token.Hash)
-
-	// Test token validation
+	// Now validate it
 	valid, err := tokenService.ValidateToken(token.PlainToken)
 	require.NoError(t, err)
 	require.True(t, valid)
@@ -70,8 +69,7 @@ func TestTokenGeneration(t *testing.T) {
 
 	// Test validate token
 	valid, err = tokenService.ValidateToken(expiredToken.PlainToken)
-	require.NoError(t, err)
-	require.False(t, valid)
+	require.Error(t, err)
 }
 
 func TestListUserTokens(t *testing.T) {

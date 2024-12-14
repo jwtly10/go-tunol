@@ -2,6 +2,9 @@ package tunnel
 
 import (
 	"encoding/json"
+	"github.com/jwtly10/go-tunol/pkg/auth"
+	"github.com/jwtly10/go-tunol/pkg/utils"
+	"github.com/stretchr/testify/require"
 	"io"
 	"log/slog"
 	"net/http"
@@ -30,16 +33,44 @@ func setupUnitTestEnv(t *testing.T) config.ServerConfig {
 
 // TestServerStartAndAcceptConnections tests that the server starts and accepts connections
 func TestServerStartAndAcceptConnections(t *testing.T) {
+	// Init basic test environment
+	db := utils.SetupTestDB(t)
+	defer db.Close()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	server := NewServer(logger, &cfg)
+	tokenService := auth.NewTokenService(db)
+	userRepo := auth.NewUserRepository(db)
+	server := NewServer(tokenService, logger, &cfg)
+	// Create test user
+	user := &auth.User{
+		ID:              0,
+		GithubID:        12345,
+		GithubUsername:  "testuser",
+		GithubAvatarURL: "https://github.com/avatar.jpg",
+		GithubEmail:     "test@example.com",
+	}
+	user, err := userRepo.CreateUser(user)
+	require.NoError(t, err)
+	// Create auth token
+	token, err := tokenService.CreateToken(user.ID, "Test token", 24*time.Hour)
+	if err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
 
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
 	wsUrl := strings.Replace(ts.URL, "http", "ws", 1)
 
-	ws, err := websocket.Dial(wsUrl, "", ts.URL)
+	// Create a manual ws config so we can add auth to handshake
+	wsConfig, err := websocket.NewConfig(wsUrl, ts.URL)
+	if err != nil {
+		t.Fatalf("failed to create websocket config: %v", err)
+	}
+
+	wsConfig.Header.Set("Authorization", "Bearer "+token.PlainToken)
+
+	ws, err := websocket.DialConfig(wsConfig)
 	if err != nil {
 		t.Fatalf("could not connect to websocket server: %v", err)
 	}
@@ -62,14 +93,43 @@ func TestServerStartAndAcceptConnections(t *testing.T) {
 
 // TestTunnelRegistration tests that the server correctly registers a new tunnel
 func TestTunnelRegistration(t *testing.T) {
+	// Init basic test environment
+	db := utils.SetupTestDB(t)
+	defer db.Close()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	server := NewServer(logger, &cfg)
+	tokenService := auth.NewTokenService(db)
+	userRepo := auth.NewUserRepository(db)
+	// Create test user
+	user := &auth.User{
+		ID:              0,
+		GithubID:        12345,
+		GithubUsername:  "testuser",
+		GithubAvatarURL: "https://github.com/avatar.jpg",
+		GithubEmail:     "test@example.com",
+	}
+	user, err := userRepo.CreateUser(user)
+	require.NoError(t, err)
+	// Create auth token
+	token, err := tokenService.CreateToken(user.ID, "Test token", 24*time.Hour)
+	if err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	server := NewServer(tokenService, logger, &cfg)
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
 
 	wsUrl := strings.Replace(ts.URL, "http", "ws", 1)
-	ws, err := websocket.Dial(wsUrl, "", ts.URL)
+	// Create a manual ws config so we can add auth to handshake
+	wsConfig, err := websocket.NewConfig(wsUrl, ts.URL)
+	if err != nil {
+		t.Fatalf("failed to create websocket config: %v", err)
+	}
+
+	wsConfig.Header.Set("Authorization", "Bearer "+token.PlainToken)
+
+	ws, err := websocket.DialConfig(wsConfig)
 	if err != nil {
 		t.Fatalf("could not connect to websocket server: %v", err)
 	}
@@ -122,9 +182,29 @@ func TestTunnelRegistration(t *testing.T) {
 }
 
 func TestHTTPForwarding(t *testing.T) {
+	db := utils.SetupTestDB(t)
+	defer db.Close()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	server := NewServer(logger, &cfg)
+	tokenService := auth.NewTokenService(db)
+	userRepo := auth.NewUserRepository(db)
+	// Create test user
+	user := &auth.User{
+		ID:              0,
+		GithubID:        12345,
+		GithubUsername:  "testuser",
+		GithubAvatarURL: "https://github.com/avatar.jpg",
+		GithubEmail:     "test@example.com",
+	}
+	user, err := userRepo.CreateUser(user)
+	require.NoError(t, err)
+	// Create auth token
+	token, err := tokenService.CreateToken(user.ID, "Test token", 24*time.Hour)
+	if err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	server := NewServer(tokenService, logger, &cfg)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
@@ -141,10 +221,19 @@ func TestHTTPForwarding(t *testing.T) {
 
 	// Connect as a WebSocket client (simulating the CLI)
 	wsURL := strings.Replace(ts.URL, "http", "ws", 1)
-	ws, err := websocket.Dial(wsURL, "", ts.URL)
+	// Create a manual ws config so we can add auth to handshake
+	wsConfig, err := websocket.NewConfig(wsURL, ts.URL)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("failed to create websocket config: %v", err)
 	}
+
+	wsConfig.Header.Set("Authorization", "Bearer "+token.PlainToken)
+
+	ws, err := websocket.DialConfig(wsConfig)
+	if err != nil {
+		t.Fatalf("could not connect to websocket server: %v", err)
+	}
+	defer ws.Close()
 
 	// Register a tunnel
 	tunnelReq := Message{
@@ -213,9 +302,29 @@ func TestHTTPForwarding(t *testing.T) {
 
 // TestClientDisconnection verifies that the server properly cleans up when a client disconnects
 func TestClientDisconnection(t *testing.T) {
+	db := utils.SetupTestDB(t)
+	defer db.Close()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	server := NewServer(logger, &cfg)
+	tokenService := auth.NewTokenService(db)
+	userRepo := auth.NewUserRepository(db)
+	// Create test user
+	user := &auth.User{
+		ID:              0,
+		GithubID:        12345,
+		GithubUsername:  "testuser",
+		GithubAvatarURL: "https://github.com/avatar.jpg",
+		GithubEmail:     "test@example.com",
+	}
+	user, err := userRepo.CreateUser(user)
+	require.NoError(t, err)
+	// Create auth token
+	token, err := tokenService.CreateToken(user.ID, "Test token", 24*time.Hour)
+	if err != nil {
+		t.Fatalf("failed to create token: %v", err)
+	}
+
+	server := NewServer(tokenService, logger, &cfg)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
@@ -227,10 +336,19 @@ func TestClientDisconnection(t *testing.T) {
 	defer ts.Close()
 
 	wsURL := strings.Replace(ts.URL, "http", "ws", 1)
-	client, err := websocket.Dial(wsURL, "", ts.URL)
+	// Create a manual ws config so we can add auth to handshake
+	wsConfig, err := websocket.NewConfig(wsURL, ts.URL)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("failed to create websocket config: %v", err)
 	}
+
+	wsConfig.Header.Set("Authorization", "Bearer "+token.PlainToken)
+
+	client, err := websocket.DialConfig(wsConfig)
+	if err != nil {
+		t.Fatalf("could not connect to websocket server: %v", err)
+	}
+	defer client.Close()
 
 	tunnelReq := Message{
 		Type:    MessageTypeTunnelReq,

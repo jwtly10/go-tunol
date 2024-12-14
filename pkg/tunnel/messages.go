@@ -9,8 +9,10 @@ const (
 	MessageTypeTunnelReq  MessageType = "tunnel_req"
 	MessageTypeTunnelResp MessageType = "tunnel_resp"
 
-	MessageTypeHTTPRequest MessageType = "http_request"
+	MessageTypeHTTPRequest  MessageType = "http_request"
 	MessageTypeHTTPResponse MessageType = "http_response"
+
+	MessageTypeError MessageType = "error"
 )
 
 type Message struct {

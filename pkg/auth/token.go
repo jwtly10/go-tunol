@@ -3,8 +3,10 @@ package auth
 import (
 	"database/sql"
 	"errors"
-	"github.com/google/uuid"
+	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Token struct {
@@ -85,7 +87,7 @@ func (s *TokenService) ValidateToken(plainToken string) (bool, error) {
 		&token.RevokedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
+			return false, fmt.Errorf("token does not exist")
 		}
 	}
 
@@ -93,15 +95,15 @@ func (s *TokenService) ValidateToken(plainToken string) (bool, error) {
 	if time.Now().After(token.ExpiresAt) {
 		_, err := s.db.Exec(`UPDATE tokens SET revoked_at = ? WHERE id = ?`, time.Now(), token.ID)
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("failed to revoke token: %w", err)
 		}
-		return false, nil
+		return false, fmt.Errorf("token has expired")
 	}
 
 	// Set last used
 	_, err := s.db.Exec(`UPDATE tokens SET last_used = ? WHERE id = ?`, time.Now(), token.ID)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to update last used: %w", err)
 	}
 
 	return token.RevokedAt == nil, nil

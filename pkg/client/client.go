@@ -34,20 +34,7 @@ type Tunnel interface {
 	Close() error
 }
 
-type RequestEvent struct {
-	TunnelID  string
-	Method    string
-	Path      string
-	Status    int
-	Duration  time.Duration
-	Error     string
-	Timestamp time.Time
-
-	// ConnectionFailed is set to true if the client lost connection to the server
-	ConnectionFailed bool
-}
-
-type EventHandler func(event RequestEvent)
+type EventHandler func(event Event)
 
 type client struct {
 	tunnels map[string]Tunnel
@@ -73,7 +60,23 @@ func NewClient(cfg *config.ClientConfig, logger *slog.Logger, events EventHandle
 
 func (c *client) NewTunnel(localPort int) (Tunnel, error) {
 	c.logger.Info("creating new tunnel", "localPort", localPort)
-	ws, err := websocket.Dial(c.cfg.Url, "", c.cfg.Origin)
+
+	headers := make(http.Header)
+	if c.cfg.Token != "" {
+		headers.Set("Authorization", "Bearer "+c.cfg.Token)
+	}
+
+	// Create a manual ws config so we can add auth to handshake
+	wsConfig, err := websocket.NewConfig(c.cfg.Url, c.cfg.Origin)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create websocket config: %w", err)
+	}
+
+	if c.cfg.Token != "" {
+		wsConfig.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+	}
+
+	ws, err := websocket.DialConfig(wsConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to tunol server: %w", err)
 	}
@@ -94,9 +97,22 @@ func (c *client) NewTunnel(localPort int) (Tunnel, error) {
 	if err := websocket.JSON.Receive(ws, &resp); err != nil {
 		return nil, fmt.Errorf("failed to receive tunnel response: %w", err)
 	}
+	// This should either be a success with tunnel details, or an error
+	// In case of an error we end here
+	switch resp.Type {
+	case tunnel.MessageTypeTunnelResp:
+		break
+	case tunnel.MessageTypeError:
+		var eEvent ErrorEvent
+		b, err := json.Marshal(resp.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("could not marshal error payload: %w", err)
+		}
+		if err := json.Unmarshal(b, &eEvent); err != nil {
+			return nil, fmt.Errorf("could not unmarshal error payload: %w", err)
+		}
 
-	if resp.Type != tunnel.MessageTypeTunnelResp {
-		return nil, fmt.Errorf("expected tunnel response, got %s", resp.Type)
+		return nil, fmt.Errorf("failed to create tunnel: %s", eEvent.Error)
 	}
 
 	b, err := json.Marshal(resp.Payload)
@@ -139,11 +155,13 @@ func (c *client) handleMessages(t *tunnelConn) {
 		var msg tunnel.Message
 		if err := websocket.JSON.Receive(t.wsConn, &msg); err != nil {
 			if c.events != nil {
-				c.events(RequestEvent{
-					TunnelID:         t.url,
-					Error:            "Client lost connection to server: " + err.Error(),
-					Timestamp:        time.Now(),
-					ConnectionFailed: true,
+				c.events(Event{
+					Payload: RequestEvent{
+						TunnelID:         t.url,
+						Error:            "Client lost connection to server: " + err.Error(),
+						Timestamp:        time.Now(),
+						ConnectionFailed: true,
+					},
 				})
 			}
 
@@ -152,7 +170,28 @@ func (c *client) handleMessages(t *tunnelConn) {
 		}
 
 		switch msg.Type {
+		case tunnel.MessageTypeError:
+			c.logger.Error("received error message", "error", msg.Payload)
+			var errMsg ErrorEvent
+			b, err := json.Marshal(msg.Payload)
+			if err != nil {
+				c.logger.Error("failed to marshal error message", "error", err)
+				continue
+			}
+			if err := json.Unmarshal(b, &errMsg); err != nil {
+				c.logger.Error("failed to unmarshal error message", "error", err)
+				continue
+			}
+
+			if c.events != nil {
+				c.events(Event{
+					Type:    EventTypeError,
+					Payload: errMsg,
+				})
+			}
+
 		case tunnel.MessageTypeHTTPRequest:
+			c.logger.Debug("received HTTP request", "request", msg.Payload)
 			startTime := time.Now()
 			// Parse the proxied request from messages
 			var httpReq tunnel.HTTPRequest
@@ -223,21 +262,25 @@ func (c *client) handleMessages(t *tunnelConn) {
 					}
 				}
 
-				// Emit the event to the caller
+				// Emit the event to be handled by the client impl
 				if c.events != nil {
-					c.events(RequestEvent{
-						TunnelID:  t.url,
-						Method:    httpReq.Method,
-						Path:      httpReq.Path,
-						Status:    resp.StatusCode,
-						Duration:  time.Since(startTime),
-						Error:     errMsg,
-						Timestamp: startTime,
+					c.events(Event{
+						Type: EventTypeRequest,
+						Payload: RequestEvent{
+							TunnelID:  t.url,
+							Method:    httpReq.Method,
+							Path:      httpReq.Path,
+							Status:    resp.StatusCode,
+							Duration:  time.Since(startTime),
+							Error:     errMsg,
+							Timestamp: startTime,
+						},
 					})
 				}
 			}()
 
 		case tunnel.MessageTypePing:
+			c.logger.Debug("received ping message")
 			if err := websocket.JSON.Send(t.wsConn, tunnel.Message{Type: tunnel.MessageTypePong}); err != nil {
 				c.logger.Error("failed to send websocket message", "error", err)
 				return

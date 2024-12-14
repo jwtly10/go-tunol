@@ -76,7 +76,7 @@ func main() {
 	dashboardHandler := auth.NewDashboardHandler(templates, tokenService, logger)
 
 	// Initialize tunnel server
-	tunnelServer := tunnel.NewServer(logger, &cfg.Server)
+	tunnelServer := tunnel.NewServer(tokenService, logger, &cfg.Server)
 
 	// Setup mux and routes
 	mux := http.NewServeMux()
