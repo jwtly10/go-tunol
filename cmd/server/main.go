@@ -34,9 +34,6 @@ func setupLogger() *slog.Logger {
 
 func setupWebRoutes(mux *http.ServeMux, t *template.Template, authMiddleware *auth.AuthMiddleware, dashboardHandler *auth.DashboardHandler, authHandler *auth.AuthHandler) {
 	// Public routes
-	//mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-	//	http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
-	//})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))

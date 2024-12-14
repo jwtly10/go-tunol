@@ -96,7 +96,7 @@ func (c *ClientConfig) WebSocketURL() string {
 // NewWebSocketConfig creates a websocket.Config for CLI usage
 func (c *ClientConfig) NewWebSocketConfig() (*websocket.Config, error) {
 	// For CLI clients, we can use a simple static origin
-	return websocket.NewConfig(c.WebSocketURL(), "https://cli.tunol")
+	return websocket.NewConfig(c.WebSocketURL(), "https://cli.tunol.dev")
 }
 
 // getOrDefault returns the value of the environment variable with the given key

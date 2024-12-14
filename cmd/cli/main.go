@@ -20,6 +20,13 @@ import (
 	"time"
 )
 
+const (
+	// Default prod URL
+	defaultServerURL = "https://tunol.dev"
+
+	serverURLEnv = "TUNOL_SERVER_URL"
+)
+
 func setupCLILogger() *slog.Logger {
 	// Logs will be saved at ~/.tunol/logs/tunol-cli.log
 	homeDir, err := os.UserHomeDir()
@@ -373,16 +380,27 @@ func validateTokenOnServer(token string, serverHost string) error {
 }
 
 func main() {
-	var ports portFlags
-	var loginToken string
+	var (
+		ports      portFlags
+		loginToken string
+		serverURL  string
+	)
 
 	flag.Var(&ports, "port", "Port to tunnel (can be specified multiple times)")
 	flag.StringVar(&loginToken, "login", "", "Login with the provided token")
+	flag.StringVar(&serverURL, "server", "", "Server URL (defaults to TUNOL_SERVER_URL env var or https://tunol.dev)")
 	flag.Parse()
-
 	logger := setupCLILogger()
+
+	if serverURL == "" {
+		serverURL = os.Getenv(serverURLEnv)
+		if serverURL == "" {
+			serverURL = defaultServerURL
+		}
+	}
+
 	cfg := &config.ClientConfig{
-		ServerURL: "http://localhost:8001",
+		ServerURL: serverURL,
 	}
 	app := NewApp([]int(ports), logger, cfg)
 
