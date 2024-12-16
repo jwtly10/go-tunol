@@ -1,4 +1,4 @@
-package tunnel
+package proto
 
 type MessageType string
 

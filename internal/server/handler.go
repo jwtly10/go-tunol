@@ -1,8 +1,10 @@
-package tunnel
+package server
 
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/jwtly10/go-tunol/internal/auth/token"
+	"github.com/jwtly10/go-tunol/internal/proto"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,15 +15,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jwtly10/go-tunol/pkg/auth"
-	"github.com/jwtly10/go-tunol/pkg/config"
+	"github.com/jwtly10/go-tunol/internal/config"
 	"golang.org/x/net/websocket"
 )
 
 type Server struct {
 	tunnels         map[string]*Tunnel
-	pendingRequests map[string]chan *HTTPResponse
-	tokenService    *auth.TokenService
+	pendingRequests map[string]chan *proto.HTTPResponse
+	tokenService    *token.Service
 
 	mu     sync.Mutex
 	logger *slog.Logger
@@ -39,13 +40,13 @@ type Tunnel struct {
 	Created      time.Time
 }
 
-func NewServer(tokenService *auth.TokenService, logger *slog.Logger, cfg *config.ServerConfig) *Server {
+func NewServer(tokenService *token.Service, logger *slog.Logger, cfg *config.ServerConfig) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 	s := &Server{
 		tunnels:         make(map[string]*Tunnel),
-		pendingRequests: make(map[string]chan *HTTPResponse),
+		pendingRequests: make(map[string]chan *proto.HTTPResponse),
 		tokenService:    tokenService,
 
 		logger: logger,
@@ -63,8 +64,8 @@ func (s *Server) Handler() http.Handler {
 		if err := s.authenticateWebSocket(ws); err != nil {
 			s.logger.Error("websocket authentication failed", "error", err)
 			// Send error message before closing
-			errMsg := Message{
-				Type: MessageTypeError,
+			errMsg := proto.Message{
+				Type: proto.MessageTypeError,
 				Payload: map[string]string{
 					"error": err.Error(),
 				},
@@ -134,7 +135,7 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 	}()
 
 	for {
-		var msg Message
+		var msg proto.Message
 		if err := websocket.JSON.Receive(ws, &msg); err != nil {
 			var id string
 			for _, tunnel := range s.tunnels {
@@ -150,8 +151,8 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 			return // Trigger deferred clean up
 		}
 
-		if msg.Type == MessageTypeHTTPResponse {
-			var resp HTTPResponse
+		if msg.Type == proto.MessageTypeHTTPResponse {
+			var resp proto.HTTPResponse
 			if b, err := json.Marshal(msg.Payload); err == nil {
 				if err := json.Unmarshal(b, &resp); err == nil {
 					s.mu.Lock()
@@ -166,19 +167,19 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 		}
 
 		switch msg.Type {
-		case MessageTypePing:
+		case proto.MessageTypePing:
 			s.logger.Info("received ping message")
-			if err := websocket.JSON.Send(ws, Message{Type: MessageTypePong}); err != nil {
+			if err := websocket.JSON.Send(ws, proto.Message{Type: proto.MessageTypePong}); err != nil {
 				s.logger.Error("failed to send websocket message", "error", err)
 				return
 			}
 
-		case MessageTypePong:
+		case proto.MessageTypePong:
 			s.logger.Info("received pong message")
 
-		case MessageTypeTunnelReq:
+		case proto.MessageTypeTunnelReq:
 			s.logger.Info("received tunnel request", "payload", msg.Payload)
-			var req TunnelRequest
+			var req proto.TunnelRequest
 			b, err := json.Marshal(msg.Payload)
 			if err != nil {
 				s.logger.Error("failed to marshal tunnel request", "error", err)
@@ -204,9 +205,9 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 			s.tunnels[id] = t
 			s.mu.Unlock()
 
-			resp := Message{
-				Type: MessageTypeTunnelResp,
-				Payload: TunnelResponse{
+			resp := proto.Message{
+				Type: proto.MessageTypeTunnelResp,
+				Payload: proto.TunnelResponse{
 					URL: t.Path,
 				},
 			}
@@ -217,9 +218,9 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 
 			s.logger.Info("new tunnel registered", "totalTunnels", len(s.tunnels), "id", id, "localPort", req.LocalPort, "url", t.Path)
 
-		case MessageTypeHTTPResponse:
+		case proto.MessageTypeHTTPResponse:
 			s.logger.Info("received http response from tunnel", "payload", msg.Payload)
-			var resp HTTPResponse
+			var resp proto.HTTPResponse
 			b, _ := json.Marshal(msg.Payload)
 			if err := json.Unmarshal(b, &resp); err != nil {
 				s.logger.Error("failed to unmarshal HTTP response", "error", err)
@@ -237,21 +238,6 @@ func (s *Server) handleWS(ws *websocket.Conn) {
 			s.logger.Warn("unknown message type", "type", msg.Type, "content", msg)
 		}
 	}
-}
-
-type HTTPRequest struct {
-	Method    string            `json:"method"`
-	Path      string            `json:"path"`
-	Headers   map[string]string `json:"headers"`
-	Body      []byte            `json:"body"`
-	RequestId string            `json:"request_id"`
-}
-
-type HTTPResponse struct {
-	StatusCode int               `json:"status_code"`
-	Headers    map[string]string `json:"headers"`
-	Body       []byte            `json:"body"`
-	RequestId  string            `json:"request_id"`
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -275,7 +261,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// We need to be able to wait for the response from the CLI tunnel
-	respChan := make(chan *HTTPResponse, 1)
+	respChan := make(chan *proto.HTTPResponse, 1)
 	requestId := generateID()
 
 	s.mu.Lock()
@@ -302,7 +288,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpReq := HTTPRequest{
+	httpReq := proto.HTTPRequest{
 		Method:    r.Method,
 		Path:      realPath,
 		Body:      body,
@@ -312,8 +298,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Info("forwarding http request to tunnel", "tunnel_id", tunnelId, "request_id", requestId, "path", realPath)
 
-	msg := Message{
-		Type:    MessageTypeHTTPRequest,
+	msg := proto.Message{
+		Type:    proto.MessageTypeHTTPRequest,
 		Payload: httpReq,
 	}
 
@@ -360,7 +346,7 @@ func (s *Server) cleanupLoop() {
 
 // isConnClosed pings the websocket connection to check if it's still alive
 func (s *Server) isConnClosed(ws *websocket.Conn) bool {
-	err := websocket.JSON.Send(ws, Message{Type: MessageTypePing})
+	err := websocket.JSON.Send(ws, proto.Message{Type: proto.MessageTypePing})
 	return err != nil
 }
 

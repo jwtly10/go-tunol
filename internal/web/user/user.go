@@ -1,8 +1,9 @@
-package auth
+package user
 
 import (
 	"database/sql"
 	"errors"
+	"github.com/jwtly10/go-tunol/internal/db"
 	"time"
 )
 
@@ -16,15 +17,15 @@ type User struct {
 	LastLogin       *time.Time // May be nil if never logged in
 }
 
-type UserRepository struct {
-	db *sql.DB
+type Repository struct {
+	db *db.Database
 }
 
-func NewUserRepository(db *sql.DB) *UserRepository {
-	return &UserRepository{db: db}
+func NewUserRepository(db *db.Database) *Repository {
+	return &Repository{db: db}
 }
 
-func (r *UserRepository) CreateUser(user *User) (*User, error) {
+func (r *Repository) CreateUser(user *User) (*User, error) {
 	result, err := r.db.Exec(`
         INSERT INTO users (github_id, github_username, github_avatar_url, github_email, created_at)
         VALUES (?, ?, ?, ?, ?)
@@ -62,7 +63,7 @@ func (r *UserRepository) CreateUser(user *User) (*User, error) {
 	return &created, nil
 }
 
-func (r *UserRepository) CreateOrUpdateUser(user *User) (*User, error) {
+func (r *Repository) CreateOrUpdateUser(user *User) (*User, error) {
 	existing, err := r.FindByGithubID(user.GithubID)
 	if err != nil {
 		return nil, err
@@ -105,7 +106,7 @@ func (r *UserRepository) CreateOrUpdateUser(user *User) (*User, error) {
 	return &updated, nil
 }
 
-func (r *UserRepository) FindByGithubID(githubID int64) (*User, error) {
+func (r *Repository) FindByGithubID(githubID int64) (*User, error) {
 	user := &User{}
 	err := r.db.QueryRow(`
         SELECT id, github_id, github_username, github_avatar_url, github_email, created_at, last_login
@@ -126,7 +127,7 @@ func (r *UserRepository) FindByGithubID(githubID int64) (*User, error) {
 	return user, err
 }
 
-func (r *UserRepository) FindByID(userId int64) (*User, error) {
+func (r *Repository) FindByID(userId int64) (*User, error) {
 	user := &User{}
 	err := r.db.QueryRow(`
 		SELECT id, github_id, github_username, github_avatar_url, github_email, created_at, last_login

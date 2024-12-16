@@ -1,12 +1,16 @@
-package auth
+package user
 
 import (
+	testutil "github.com/jwtly10/go-tunol/internal/testutils"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
 
 func TestUserRepository(t *testing.T) {
-	db := setupTestDB(t)
+	// Init basic test environment
+	db, cleanup := testutil.SetupTestDB(t)
+	defer cleanup()
+
 	repo := NewUserRepository(db)
 
 	user := &User{

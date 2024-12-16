@@ -3,6 +3,7 @@ package auth
 import (
 	"database/sql"
 	"github.com/google/uuid"
+	"github.com/jwtly10/go-tunol/internal/db"
 	"log/slog"
 	"time"
 )
@@ -16,11 +17,11 @@ type Session struct {
 }
 
 type SessionService struct {
-	db     *sql.DB
+	db     *db.Database
 	logger *slog.Logger
 }
 
-func NewSessionService(db *sql.DB, logger *slog.Logger) *SessionService {
+func NewSessionService(db *db.Database, logger *slog.Logger) *SessionService {
 	return &SessionService{
 		db:     db,
 		logger: logger,

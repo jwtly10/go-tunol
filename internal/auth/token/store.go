@@ -1,4 +1,4 @@
-package auth
+package token
 
 import (
 	"fmt"
@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 )
 
-type TokenStore struct {
+type Store struct {
 	configPath string
 }
 
-func NewTokenStore() (*TokenStore, error) {
+func NewTokenStore() (*Store, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
@@ -21,16 +21,16 @@ func NewTokenStore() (*TokenStore, error) {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	return &TokenStore{
+	return &Store{
 		configPath: filepath.Join(configDir, "token"),
 	}, nil
 }
 
-func (s *TokenStore) StoreToken(token string) error {
+func (s *Store) StoreToken(token string) error {
 	return os.WriteFile(s.configPath, []byte(token), 0600)
 }
 
-func (s *TokenStore) GetToken() (string, error) {
+func (s *Store) GetToken() (string, error) {
 	data, err := os.ReadFile(s.configPath)
 	if err != nil {
 		if os.IsNotExist(err) {

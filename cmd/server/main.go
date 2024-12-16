@@ -2,8 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/jwtly10/go-tunol/pkg/auth"
-	"github.com/jwtly10/go-tunol/pkg/database"
+	"github.com/jwtly10/go-tunol/internal/auth/token"
+	"github.com/jwtly10/go-tunol/internal/db"
+	"github.com/jwtly10/go-tunol/internal/web/auth"
+	"github.com/jwtly10/go-tunol/internal/web/dashboard"
+	_ "github.com/jwtly10/go-tunol/internal/web/dashboard"
+	"github.com/jwtly10/go-tunol/internal/web/user"
 	"html/template"
 	"log"
 	"log/slog"
@@ -11,8 +15,8 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/jwtly10/go-tunol/pkg/config"
-	"github.com/jwtly10/go-tunol/pkg/tunnel"
+	"github.com/jwtly10/go-tunol/internal/config"
+	"github.com/jwtly10/go-tunol/internal/server"
 )
 
 func setupLogger() *slog.Logger {
@@ -32,7 +36,7 @@ func setupLogger() *slog.Logger {
 	return slog.New(handler)
 }
 
-func setupWebRoutes(mux *http.ServeMux, t *template.Template, authMiddleware *auth.AuthMiddleware, dashboardHandler *auth.DashboardHandler, authHandler *auth.AuthHandler) {
+func setupWebRoutes(mux *http.ServeMux, t *template.Template, authMiddleware *auth.Middleware, dashboardHandler *dashboard.Handler, authHandler *auth.Handler) {
 	// Public routes
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -71,28 +75,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := database.Initialize(cfg.Database); err != nil {
+	d, err := db.Initialize(cfg.Database)
+	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	logger.Info("Database initialized")
-	defer database.Close()
-	db := database.GetDB()
+	defer d.Close()
 
 	// Initialize services
-	userRepo := auth.NewUserRepository(db)
-	sessionService := auth.NewSessionService(db, logger)
-	tokenService := auth.NewTokenService(db)
+	userRepo := user.NewUserRepository(d)
+	sessionService := auth.NewSessionService(d, logger)
+	tokenService := token.NewTokenService(d)
 
 	// Load templates
 	templates := template.Must(template.ParseGlob("templates/*.html"))
 
 	// Initialize handlers
-	authHandler := auth.NewAuthHandler(db, templates, tokenService, sessionService, userRepo, &cfg.Server, logger)
+	authHandler := auth.NewAuthHandler(d, templates, tokenService, sessionService, userRepo, &cfg.Server, logger)
 	authMiddleware := auth.NewAuthMiddleware(sessionService, userRepo, logger)
-	dashboardHandler := auth.NewDashboardHandler(templates, tokenService, logger)
+	dashboardHandler := dashboard.NewDashboardHandler(templates, tokenService, logger)
 
 	// Initialize tunnel server
-	tunnelServer := tunnel.NewServer(tokenService, logger, &cfg.Server)
+	tunnelServer := server.NewServer(tokenService, logger, &cfg.Server)
 
 	// Setup mux and routes
 	mux := http.NewServeMux()

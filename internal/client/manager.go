@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/jwtly10/go-tunol/internal/config"
+	"github.com/jwtly10/go-tunol/internal/proto"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,12 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jwtly10/go-tunol/pkg/config"
-	"github.com/jwtly10/go-tunol/pkg/tunnel"
 	"golang.org/x/net/websocket"
 )
 
-type Client interface {
+type TunnelManager interface {
 	// NewTunnel creates a new tunnel and returns it
 	NewTunnel(localPort int) (Tunnel, error)
 	// Tunnels returns all active tunnels
@@ -36,7 +36,7 @@ type Tunnel interface {
 
 type EventHandler func(event Event)
 
-type client struct {
+type manager struct {
 	tunnels map[string]Tunnel
 	events  EventHandler
 
@@ -45,11 +45,17 @@ type client struct {
 	logger *slog.Logger
 }
 
-func NewClient(cfg *config.ClientConfig, logger *slog.Logger, events EventHandler) Client {
+type tunnel struct {
+	url       string
+	localPort int
+	wsConn    *websocket.Conn
+}
+
+func NewTunnelManager(cfg *config.ClientConfig, logger *slog.Logger, events EventHandler) TunnelManager {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
-	return &client{
+	return &manager{
 		tunnels: make(map[string]Tunnel),
 		events:  events,
 
@@ -58,7 +64,7 @@ func NewClient(cfg *config.ClientConfig, logger *slog.Logger, events EventHandle
 	}
 }
 
-func (c *client) NewTunnel(localPort int) (Tunnel, error) {
+func (c *manager) NewTunnel(localPort int) (Tunnel, error) {
 	c.logger.Info("creating new tunnel", "localPort", localPort)
 
 	headers := make(http.Header)
@@ -81,28 +87,28 @@ func (c *client) NewTunnel(localPort int) (Tunnel, error) {
 		return nil, fmt.Errorf("failed to connect to tunol server: %w", err)
 	}
 
-	req := tunnel.TunnelRequest{
+	req := proto.TunnelRequest{
 		LocalPort: localPort,
 	}
 
-	if err := websocket.JSON.Send(ws, tunnel.Message{
-		Type:    tunnel.MessageTypeTunnelReq,
+	if err := websocket.JSON.Send(ws, proto.Message{
+		Type:    proto.MessageTypeTunnelReq,
 		Payload: req,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to send tunnel request: %w", err)
 	}
 
 	// Now wait for response of tunnel init
-	var resp tunnel.Message
+	var resp proto.Message
 	if err := websocket.JSON.Receive(ws, &resp); err != nil {
 		return nil, fmt.Errorf("failed to receive tunnel response: %w", err)
 	}
 	// This should either be a success with tunnel details, or an error
 	// In case of an error we end here
 	switch resp.Type {
-	case tunnel.MessageTypeTunnelResp:
+	case proto.MessageTypeTunnelResp:
 		break
-	case tunnel.MessageTypeError:
+	case proto.MessageTypeError:
 		var eEvent ErrorEvent
 		b, err := json.Marshal(resp.Payload)
 		if err != nil {
@@ -120,12 +126,12 @@ func (c *client) NewTunnel(localPort int) (Tunnel, error) {
 		return nil, fmt.Errorf("could not marshal payload: %w", err)
 	}
 
-	var tunnelResp tunnel.TunnelResponse
+	var tunnelResp proto.TunnelResponse
 	if err := json.Unmarshal(b, &tunnelResp); err != nil {
 		return nil, fmt.Errorf("could not unmarshal payload: %w", err)
 	}
 
-	t := &tunnelConn{
+	t := &tunnel{
 		url:       tunnelResp.URL,
 		localPort: localPort,
 		wsConn:    ws,
@@ -141,7 +147,7 @@ func (c *client) NewTunnel(localPort int) (Tunnel, error) {
 	return t, nil
 }
 
-func (c *client) handleMessages(t *tunnelConn) {
+func (c *manager) handleMessages(t *tunnel) {
 	// Clean up tunnel on exit
 	defer func() {
 		c.mu.Lock()
@@ -152,13 +158,13 @@ func (c *client) handleMessages(t *tunnelConn) {
 	}()
 
 	for {
-		var msg tunnel.Message
+		var msg proto.Message
 		if err := websocket.JSON.Receive(t.wsConn, &msg); err != nil {
 			if c.events != nil {
 				c.events(Event{
 					Payload: RequestEvent{
 						TunnelID:         t.url,
-						Error:            "Client lost connection to server: " + err.Error(),
+						Error:            "TunnelManager lost connection to server: " + err.Error(),
 						Timestamp:        time.Now(),
 						ConnectionFailed: true,
 					},
@@ -170,7 +176,7 @@ func (c *client) handleMessages(t *tunnelConn) {
 		}
 
 		switch msg.Type {
-		case tunnel.MessageTypeError:
+		case proto.MessageTypeError:
 			c.logger.Error("received error message", "error", msg.Payload)
 			var errMsg ErrorEvent
 			b, err := json.Marshal(msg.Payload)
@@ -190,11 +196,11 @@ func (c *client) handleMessages(t *tunnelConn) {
 				})
 			}
 
-		case tunnel.MessageTypeHTTPRequest:
+		case proto.MessageTypeHTTPRequest:
 			c.logger.Debug("received HTTP request", "request", msg.Payload)
 			startTime := time.Now()
 			// Parse the proxied request from messages
-			var httpReq tunnel.HTTPRequest
+			var httpReq proto.HTTPRequest
 			b, err := json.Marshal(msg.Payload)
 			if err != nil {
 				c.logger.Error("failed to marshal HTTP request", "error", err)
@@ -238,9 +244,9 @@ func (c *client) handleMessages(t *tunnelConn) {
 					headers[k] = v[0]
 				}
 
-				wsResp := tunnel.Message{
-					Type: tunnel.MessageTypeHTTPResponse,
-					Payload: tunnel.HTTPResponse{
+				wsResp := proto.Message{
+					Type: proto.MessageTypeHTTPResponse,
+					Payload: proto.HTTPResponse{
 						StatusCode: resp.StatusCode,
 						Headers:    headers,
 						Body:       body,
@@ -262,7 +268,7 @@ func (c *client) handleMessages(t *tunnelConn) {
 					}
 				}
 
-				// Emit the event to be handled by the client impl
+				// Emit the event to be handled by the manager impl
 				if c.events != nil {
 					c.events(Event{
 						Type: EventTypeRequest,
@@ -279,9 +285,9 @@ func (c *client) handleMessages(t *tunnelConn) {
 				}
 			}()
 
-		case tunnel.MessageTypePing:
+		case proto.MessageTypePing:
 			c.logger.Debug("received ping message")
-			if err := websocket.JSON.Send(t.wsConn, tunnel.Message{Type: tunnel.MessageTypePong}); err != nil {
+			if err := websocket.JSON.Send(t.wsConn, proto.Message{Type: proto.MessageTypePong}); err != nil {
 				c.logger.Error("failed to send websocket message", "error", err)
 				return
 			}
@@ -289,7 +295,7 @@ func (c *client) handleMessages(t *tunnelConn) {
 	}
 }
 
-func (c *client) Tunnels() []Tunnel {
+func (c *manager) Tunnels() []Tunnel {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -301,7 +307,7 @@ func (c *client) Tunnels() []Tunnel {
 	return tunnels
 }
 
-func (c *client) Close() error {
+func (c *manager) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -315,21 +321,15 @@ func (c *client) Close() error {
 	return lastErr
 }
 
-type tunnelConn struct {
-	url       string
-	localPort int
-	wsConn    *websocket.Conn
-}
-
-func (c *tunnelConn) URL() string {
+func (c *tunnel) URL() string {
 	return c.url
 }
 
-func (c *tunnelConn) LocalPort() int {
+func (c *tunnel) LocalPort() int {
 	return c.localPort
 }
 
-func (c *tunnelConn) Close() error {
+func (c *tunnel) Close() error {
 	if c.wsConn != nil {
 		return c.wsConn.Close()
 	}

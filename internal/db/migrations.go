@@ -1,99 +1,25 @@
-package database
+package db
 
 import (
 	"database/sql"
 	"fmt"
-	"github.com/jwtly10/go-tunol/pkg/config"
-	_ "github.com/mattn/go-sqlite3"
 	"os"
 	"path/filepath"
-	"sync"
 )
-
-var (
-	db   *sql.DB
-	once sync.Once
-)
-
-type Config struct {
-	Path string
-}
-
-func Initialize(cfg config.DatabaseConfig) error {
-	var initErr error
-	once.Do(func() {
-		var err error
-
-		dbDir := filepath.Dir(cfg.Path)
-		if err = os.MkdirAll(dbDir, 0755); err != nil {
-			initErr = fmt.Errorf("failed to create database directory: %w", err)
-			return
-		}
-
-		fmt.Printf("Attempting to connect to database at: %s\n", cfg.Path)
-		db, err = sql.Open("sqlite3", cfg.Path)
-		if err != nil {
-			initErr = err
-			return
-		}
-
-		// Validate the connection
-		if err = db.Ping(); err != nil {
-			initErr = err
-			return
-		}
-
-		if err = applyMigrations(db); err != nil {
-			initErr = fmt.Errorf("failed to apply migrations: %w", err)
-			return
-		}
-
-		// List all tables in the database
-		// used for debugging just in case
-		rows, err := db.Query(`
-            SELECT name FROM sqlite_master 
-            WHERE type='table' 
-            ORDER BY name;
-        `)
-		if err != nil {
-			fmt.Printf("Error querying tables: %v\n", err)
-		} else {
-			fmt.Println("Tables in database:")
-			for rows.Next() {
-				var name string
-				rows.Scan(&name)
-				fmt.Printf("- %s\n", name)
-			}
-			rows.Close()
-		}
-	})
-	return initErr
-}
-
-// GetDB returns the database instance.
-// Panics if the database hasn't been initialized.
-func GetDB() *sql.DB {
-	if db == nil {
-		panic("Database not initialized. Call Initialize() first")
-	}
-	return db
-}
-
-// Close closes the database connection.
-func Close() error {
-	if db != nil {
-		return db.Close()
-	}
-	return nil
-}
 
 // applyMigrations reads all migration files from the migrations directory
 func applyMigrations(db *sql.DB) error {
 	fmt.Println("Applying migrations")
-	// Path to migrations directory relative to the project root
-	migrationsDir := "./pkg/db/migrations"
 
-	// Read all migration files
+	// Find migrations dir
+	projectRoot, err := findProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to find project root: %w", err)
+	}
+	migrationsDir := filepath.Join(projectRoot, "db", "migrations")
+
+	fmt.Printf("Using migrations directory: %s\n", migrationsDir)
+
 	files, err := os.ReadDir(migrationsDir)
 	if err != nil {
 		return fmt.Errorf("failed to read migrations directory: %w", err)
@@ -103,6 +29,7 @@ func applyMigrations(db *sql.DB) error {
 	_, err = db.Exec(`
         CREATE TABLE IF NOT EXISTS schema_migrations (
             filename TEXT PRIMARY KEY,
+			query TEXT,
             applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     `)
@@ -146,7 +73,7 @@ func applyMigrations(db *sql.DB) error {
 		}
 
 		// Record migration
-		if _, err = tx.Exec("INSERT INTO schema_migrations (filename) VALUES (?)", file.Name()); err != nil {
+		if _, err = tx.Exec("INSERT INTO schema_migrations (filename, query) VALUES (?, ?)", file.Name(), migrationSQL); err != nil {
 			tx.Rollback()
 			return fmt.Errorf("failed to record migration %s: %w", file.Name(), err)
 		}
@@ -160,4 +87,24 @@ func applyMigrations(db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// findProjectRoot finds the root directory of the project by looking for a go.mod file
+func findProjectRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("go.mod not found in any parent directory")
+		}
+		dir = parent
+	}
 }

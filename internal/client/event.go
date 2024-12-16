@@ -18,7 +18,7 @@ type RequestEvent struct {
 	Error     string
 	Timestamp time.Time
 
-	// ConnectionFailed is set to true if the client lost connection to the server
+	// ConnectionFailed is set to true if the manager lost connection to the server
 	ConnectionFailed bool
 }
 

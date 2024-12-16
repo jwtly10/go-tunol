@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"github.com/jwtly10/go-tunol/internal/web/user"
 	"golang.org/x/net/context"
 	"log/slog"
 	"net/http"
@@ -13,21 +14,21 @@ const (
 	sessionDuration = 30 * time.Minute
 )
 
-type AuthMiddleware struct {
+type Middleware struct {
 	sessionService *SessionService
-	userRepository *UserRepository
+	userRepository *user.Repository
 	logger         *slog.Logger
 }
 
-func NewAuthMiddleware(sessionService *SessionService, userRepository *UserRepository, logger *slog.Logger) *AuthMiddleware {
-	return &AuthMiddleware{
+func NewAuthMiddleware(sessionService *SessionService, userRepository *user.Repository, logger *slog.Logger) *Middleware {
+	return &Middleware{
 		sessionService: sessionService,
 		userRepository: userRepository,
 		logger:         logger,
 	}
 }
 
-func (m *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
+func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(sessionCookie)
 		if err != nil {

@@ -1,10 +1,12 @@
 package client
 
 import (
-	"github.com/jwtly10/go-tunol/pkg/auth"
-	"github.com/jwtly10/go-tunol/pkg/config"
-	"github.com/jwtly10/go-tunol/pkg/tunnel"
-	"github.com/jwtly10/go-tunol/pkg/utils"
+	"github.com/jwtly10/go-tunol/internal/auth/token"
+	"github.com/jwtly10/go-tunol/internal/config"
+	"github.com/jwtly10/go-tunol/internal/server"
+	testutil "github.com/jwtly10/go-tunol/internal/testutils"
+	"github.com/jwtly10/go-tunol/internal/utils"
+	"github.com/jwtly10/go-tunol/internal/web/user"
 	"github.com/stretchr/testify/require"
 	"io"
 	"log/slog"
@@ -33,17 +35,21 @@ func setupUnitTestEnv(t *testing.T) (*config.ServerConfig, *config.ClientConfig)
 	return &s, &c
 }
 
-// TestCanCreateTunnels tests that the client can create tunnels, using the systems auth process
+// TestCanCreateTunnels tests that the manager can create tunnels, using the systems auth process
 func TestCanCreateTunnels(t *testing.T) {
 	// Setup all dependencies needed for the flow
 	sCfg, cCfg := setupUnitTestEnv(t)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	db := utils.SetupTestDB(t)
-	tokenService := auth.NewTokenService(db)
-	userRepo := auth.NewUserRepository(db)
+
+	// Init basic test environment
+	db, cleanup := testutil.SetupTestDB(t)
+	defer cleanup()
+
+	tokenService := token.NewTokenService(db)
+	userRepo := user.NewUserRepository(db)
 
 	// Create test user
-	user := &auth.User{
+	user := &user.User{
 		ID:              0,
 		GithubID:        12345,
 		GithubUsername:  "testuser",
@@ -62,14 +68,14 @@ func TestCanCreateTunnels(t *testing.T) {
 	cCfg.Token = token.PlainToken
 
 	// Set up test
-	server := tunnel.NewServer(tokenService, logger, sCfg)
+	server := server.NewServer(tokenService, logger, sCfg)
 	ts := httptest.NewServer(server.Handler())
 	defer ts.Close()
-	// update the client config to point to test server
+	// update the manager config to point to test server
 	cCfg.ServerURL = ts.URL
 
 	// Do test
-	client := NewClient(cCfg, logger, func(event Event) {
+	client := NewTunnelManager(cCfg, logger, func(event Event) {
 		logger.Info("event", "event", event)
 	})
 	defer client.Close()
@@ -95,18 +101,22 @@ func TestCanCreateTunnels(t *testing.T) {
 	}
 }
 
-// TestHandleIncomingRequests tests that the client can handle incoming requests
+// TestHandleIncomingRequests tests that the manager can handle incoming requests
 // and correctly forward them to the local server
 func TestHandleIncomingRequests(t *testing.T) {
 	// Setup all dependencies needed for the flow
 	s, c := setupUnitTestEnv(t)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	db := utils.SetupTestDB(t)
-	tokenService := auth.NewTokenService(db)
-	userRepo := auth.NewUserRepository(db)
+
+	// Init basic test environment
+	db, cleanup := testutil.SetupTestDB(t)
+	defer cleanup()
+
+	tokenService := token.NewTokenService(db)
+	userRepo := user.NewUserRepository(db)
 
 	// Create test user
-	user := &auth.User{
+	user := &user.User{
 		ID:              0,
 		GithubID:        12345,
 		GithubUsername:  "testuser",
@@ -124,7 +134,7 @@ func TestHandleIncomingRequests(t *testing.T) {
 	}
 	c.Token = token.PlainToken
 
-	server := tunnel.NewServer(tokenService, logger, s)
+	server := server.NewServer(tokenService, logger, s)
 
 	// Create test HTTP server with ws support
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +146,7 @@ func TestHandleIncomingRequests(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	// Update server and client config to match generated test server
+	// Update server and manager config to match generated test server
 	tsURL, _ := url.Parse(ts.URL)
 	s.BaseURL = tsURL.Scheme + "://" + tsURL.Hostname()
 	s.Port = tsURL.Port()
@@ -147,7 +157,7 @@ func TestHandleIncomingRequests(t *testing.T) {
 	}))
 	defer localServer.Close()
 
-	client := NewClient(c, logger, func(event Event) {
+	client := NewTunnelManager(c, logger, func(event Event) {
 		logger.Info("event", "event", event)
 	})
 	defer client.Close()
@@ -171,7 +181,7 @@ func TestHandleIncomingRequests(t *testing.T) {
 	}
 }
 
-// TestClientAuthentication tests that the client can authenticate with the server
+// TestClientAuthentication tests that the manager can authenticate with the server
 // and correctly handle should the server reject the initial connection
 func TestClientAuthentication(t *testing.T) {
 	tests := []struct {
@@ -202,12 +212,16 @@ func TestClientAuthentication(t *testing.T) {
 	// Setup all dependencies needed for the flow
 	s, c := setupUnitTestEnv(t)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	db := utils.SetupTestDB(t)
-	tokenService := auth.NewTokenService(db)
-	userRepo := auth.NewUserRepository(db)
+
+	// Init basic test environment
+	db, cleanup := testutil.SetupTestDB(t)
+	defer cleanup()
+
+	tokenService := token.NewTokenService(db)
+	userRepo := user.NewUserRepository(db)
 
 	// Create test user
-	user := &auth.User{
+	user := &user.User{
 		ID:              0,
 		GithubID:        12345,
 		GithubUsername:  "testuser",
@@ -219,7 +233,7 @@ func TestClientAuthentication(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create auth token, do manually so we can test missing token
-	hash := auth.HashToken("real-token")
+	hash := utils.HashToken("real-token")
 	_, err = db.Exec(`
         INSERT INTO tokens (user_id, token_hash, description, created_at, expires_at)
         VALUES (?, ?, ?, ?, ?)
@@ -227,10 +241,10 @@ func TestClientAuthentication(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Set the client token based on the test
+			// Set the manager token based on the test
 			c.Token = tc.token
 
-			server := tunnel.NewServer(tokenService, logger, s)
+			server := server.NewServer(tokenService, logger, s)
 
 			ts := httptest.NewServer(server.Handler())
 			defer ts.Close()
@@ -241,7 +255,7 @@ func TestClientAuthentication(t *testing.T) {
 			c.ServerURL = ts.URL
 
 			eventChan := make(chan Event, 1)
-			client := NewClient(c, logger, func(event Event) {
+			client := NewTunnelManager(c, logger, func(event Event) {
 				eventChan <- event
 			})
 			defer client.Close()
@@ -263,7 +277,7 @@ func TestClientAuthentication(t *testing.T) {
 	}
 }
 
-// TestClientEvents tests that the client emits events for each request made through a tunnel
+// TestClientEvents tests that the manager emits events for each request made through a tunnel
 func TestClientRequestEvents(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -314,12 +328,16 @@ func TestClientRequestEvents(t *testing.T) {
 	// Setup all dependencies needed for the flow
 	s, c := setupUnitTestEnv(t)
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	db := utils.SetupTestDB(t)
-	tokenService := auth.NewTokenService(db)
-	userRepo := auth.NewUserRepository(db)
+
+	// Init basic test environment
+	db, cleanup := testutil.SetupTestDB(t)
+	defer cleanup()
+
+	tokenService := token.NewTokenService(db)
+	userRepo := user.NewUserRepository(db)
 
 	// Create test user
-	user := &auth.User{
+	user := &user.User{
 		ID:              0,
 		GithubID:        12345,
 		GithubUsername:  "testuser",
@@ -339,7 +357,7 @@ func TestClientRequestEvents(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			server := tunnel.NewServer(tokenService, logger, s)
+			server := server.NewServer(tokenService, logger, s)
 
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Upgrade") == "websocket" {
@@ -365,7 +383,7 @@ func TestClientRequestEvents(t *testing.T) {
 
 			eventChan := make(chan Event, 1)
 
-			client := NewClient(c, logger, func(event Event) {
+			client := NewTunnelManager(c, logger, func(event Event) {
 				eventChan <- event
 			})
 			defer client.Close()

@@ -1,9 +1,11 @@
-package auth
+package token
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/jwtly10/go-tunol/internal/db"
+	"github.com/jwtly10/go-tunol/internal/utils"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,18 +27,18 @@ func (t *Token) IsExpired() bool {
 	return time.Now().After(t.ExpiresAt)
 }
 
-type TokenService struct {
-	db *sql.DB
+type Service struct {
+	db *db.Database
 }
 
-func NewTokenService(db *sql.DB) *TokenService {
-	return &TokenService{db: db}
+func NewTokenService(db *db.Database) *Service {
+	return &Service{db: db}
 }
 
-func (s *TokenService) CreateToken(userId int64, description string, validity time.Duration) (*Token, error) {
+func (s *Service) CreateToken(userId int64, description string, validity time.Duration) (*Token, error) {
 	plainToken := uuid.New().String() + "-" + uuid.New().String()
 
-	hash := HashToken(plainToken)
+	hash := utils.HashToken(plainToken)
 
 	token := &Token{
 		UserId:      userId,
@@ -71,8 +73,8 @@ func (s *TokenService) CreateToken(userId int64, description string, validity ti
 	return token, nil
 }
 
-func (s *TokenService) ValidateToken(plainToken string) (bool, error) {
-	hash := HashToken(plainToken)
+func (s *Service) ValidateToken(plainToken string) (bool, error) {
+	hash := utils.HashToken(plainToken)
 	var token Token
 	if err := s.db.QueryRow(`SELECT
     id, user_id, token_hash, description, last_used, created_at, expires_at, revoked_at
@@ -113,7 +115,7 @@ func (s *TokenService) ValidateToken(plainToken string) (bool, error) {
 	return true, nil
 }
 
-func (s *TokenService) ListUserTokens(userID int64) ([]Token, error) {
+func (s *Service) ListUserTokens(userID int64) ([]Token, error) {
 	rows, err := s.db.Query(`
         SELECT id, user_id, token_hash, description, last_used, created_at, expires_at, revoked_at
         FROM tokens

@@ -1,49 +1,23 @@
-package auth
+package token
 
 import (
-	"database/sql"
+	testutil "github.com/jwtly10/go-tunol/internal/testutils"
+	"github.com/jwtly10/go-tunol/internal/web/user"
 	"github.com/stretchr/testify/require"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
 
-func setupTestDB(t *testing.T) *sql.DB {
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "test.db")
-
-	db, err := sql.Open("sqlite3", dbPath)
-	require.NoError(t, err)
-
-	// Read and execute all migrations
-	migrationsDir := "../../pkg/db/migrations"
-	files, err := os.ReadDir(migrationsDir)
-	require.NoError(t, err)
-
-	for _, file := range files {
-		if filepath.Ext(file.Name()) != ".sql" {
-			continue
-		}
-
-		migrationPath := filepath.Join(migrationsDir, file.Name())
-		migrationSQL, err := os.ReadFile(migrationPath)
-		require.NoError(t, err)
-
-		_, err = db.Exec(string(migrationSQL))
-		require.NoError(t, err, "failed to execute migration: %s", file.Name())
-	}
-
-	return db
-}
-
 func TestTokenGeneration(t *testing.T) {
-	db := setupTestDB(t)
+	// Init basic test environment
+	db, cleanup := testutil.SetupTestDB(t)
+	defer cleanup()
+
 	tokenService := NewTokenService(db)
-	userRepo := NewUserRepository(db)
+	userRepo := user.NewUserRepository(db)
 
 	// Create test user
-	user := &User{
+	user := &user.User{
 		ID:              0,
 		GithubID:        12345,
 		GithubUsername:  "testuser",
@@ -73,11 +47,14 @@ func TestTokenGeneration(t *testing.T) {
 }
 
 func TestListUserTokens(t *testing.T) {
-	db := setupTestDB(t)
-	tokenService := NewTokenService(db)
-	userRepo := NewUserRepository(db)
+	// Init basic test environment
+	db, cleanup := testutil.SetupTestDB(t)
+	defer cleanup()
 
-	user := &User{
+	tokenService := NewTokenService(db)
+	userRepo := user.NewUserRepository(db)
+
+	user := &user.User{
 		ID:             1,
 		GithubID:       12345,
 		GithubUsername: "testuser",

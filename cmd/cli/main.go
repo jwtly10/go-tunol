@@ -4,9 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"github.com/gookit/color"
-	"github.com/jwtly10/go-tunol/pkg/auth"
-	"github.com/jwtly10/go-tunol/pkg/client"
-	"github.com/jwtly10/go-tunol/pkg/config"
+	"github.com/jwtly10/go-tunol/internal/auth/token"
+	"github.com/jwtly10/go-tunol/internal/client"
+	"github.com/jwtly10/go-tunol/internal/config"
 	"log/slog"
 	"net/http"
 	"os"
@@ -129,7 +129,7 @@ func (a *App) initTunnels() []initError {
 
 	for _, port := range a.ports {
 		// Create client with event handler
-		c := client.NewClient(a.cfg, a.logger, func(event client.Event) {
+		c := client.NewTunnelManager(a.cfg, a.logger, func(event client.Event) {
 			a.handleEvent(port, event)
 		})
 
@@ -333,17 +333,17 @@ func clearScreen() {
 	fmt.Print("\033[H\033[2J")
 }
 
-func (a *App) loginCommand(token string) error {
-	if err := validateTokenOnServer(token, a.cfg.ServerURL); err != nil {
+func (a *App) loginCommand(t string) error {
+	if err := validateTokenOnServer(t, a.cfg.ServerURL); err != nil {
 		return fmt.Errorf("failed to validate token: %w", err)
 	}
 
-	store, err := auth.NewTokenStore()
+	store, err := token.NewTokenStore()
 	if err != nil {
 		return fmt.Errorf("failed to create token store: %w", err)
 	}
 
-	if err := store.StoreToken(token); err != nil {
+	if err := store.StoreToken(t); err != nil {
 		return fmt.Errorf("failed to store token: %w", err)
 	}
 
@@ -425,7 +425,7 @@ func main() {
 	}
 
 	// Check if logged in when running tunnel commands
-	store, err := auth.NewTokenStore()
+	store, err := token.NewTokenStore()
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)

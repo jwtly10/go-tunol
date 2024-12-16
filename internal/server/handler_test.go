@@ -1,9 +1,11 @@
-package tunnel
+package server
 
 import (
 	"encoding/json"
-	"github.com/jwtly10/go-tunol/pkg/auth"
-	"github.com/jwtly10/go-tunol/pkg/utils"
+	"github.com/jwtly10/go-tunol/internal/auth/token"
+	"github.com/jwtly10/go-tunol/internal/proto"
+	testutil "github.com/jwtly10/go-tunol/internal/testutils"
+	"github.com/jwtly10/go-tunol/internal/web/user"
 	"github.com/stretchr/testify/require"
 	"io"
 	"log/slog"
@@ -15,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jwtly10/go-tunol/pkg/config"
+	"github.com/jwtly10/go-tunol/internal/config"
 	"golang.org/x/net/websocket"
 )
 
@@ -33,15 +35,16 @@ func setupUnitTestEnv(t *testing.T) config.ServerConfig {
 // TestServerStartAndAcceptConnections tests that the server starts and accepts connections
 func TestServerStartAndAcceptConnections(t *testing.T) {
 	// Init basic test environment
-	db := utils.SetupTestDB(t)
-	defer db.Close()
+	db, cleanup := testutil.SetupTestDB(t)
+	defer cleanup()
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	tokenService := auth.NewTokenService(db)
-	userRepo := auth.NewUserRepository(db)
+	tokenService := token.NewTokenService(db)
+	userRepo := user.NewUserRepository(db)
 	server := NewServer(tokenService, logger, &cfg)
 	// Create test user
-	user := &auth.User{
+	user := &user.User{
 		ID:              0,
 		GithubID:        12345,
 		GithubUsername:  "testuser",
@@ -75,17 +78,17 @@ func TestServerStartAndAcceptConnections(t *testing.T) {
 	}
 	defer ws.Close()
 
-	ping := Message{Type: MessageTypePing}
+	ping := proto.Message{Type: proto.MessageTypePing}
 	if err := websocket.JSON.Send(ws, ping); err != nil {
 		t.Fatalf("could not write message to websocket server: %v", err)
 	}
 
-	var reply Message
+	var reply proto.Message
 	if err := websocket.JSON.Receive(ws, &reply); err != nil {
 		t.Fatalf("could not read message from websocket server: %v", err)
 	}
 
-	if reply.Type != MessageTypePong {
+	if reply.Type != proto.MessageTypePong {
 		t.Fatalf("expected pong message, got %s", reply.Type)
 	}
 }
@@ -93,14 +96,15 @@ func TestServerStartAndAcceptConnections(t *testing.T) {
 // TestTunnelRegistration tests that the server correctly registers a new tunnel
 func TestTunnelRegistration(t *testing.T) {
 	// Init basic test environment
-	db := utils.SetupTestDB(t)
-	defer db.Close()
+	db, cleanup := testutil.SetupTestDB(t)
+	defer cleanup()
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	tokenService := auth.NewTokenService(db)
-	userRepo := auth.NewUserRepository(db)
+	tokenService := token.NewTokenService(db)
+	userRepo := user.NewUserRepository(db)
 	// Create test user
-	user := &auth.User{
+	user := &user.User{
 		ID:              0,
 		GithubID:        12345,
 		GithubUsername:  "testuser",
@@ -134,9 +138,9 @@ func TestTunnelRegistration(t *testing.T) {
 	}
 	defer ws.Close()
 
-	req := Message{
-		Type: MessageTypeTunnelReq,
-		Payload: TunnelRequest{
+	req := proto.Message{
+		Type: proto.MessageTypeTunnelReq,
+		Payload: proto.TunnelRequest{
 			LocalPort: 8000,
 		},
 	}
@@ -144,12 +148,12 @@ func TestTunnelRegistration(t *testing.T) {
 		t.Fatalf("could not send tunnel request: %v", err)
 	}
 
-	var resp Message
+	var resp proto.Message
 	if err := websocket.JSON.Receive(ws, &resp); err != nil {
 		t.Fatalf("could not receive tunnel response: %v", err)
 	}
 
-	if resp.Type != MessageTypeTunnelResp {
+	if resp.Type != proto.MessageTypeTunnelResp {
 		t.Fatalf("expected tunnel response, got %s", resp.Type)
 	}
 
@@ -157,7 +161,7 @@ func TestTunnelRegistration(t *testing.T) {
 		t.Fatalf("expected payload in response, got nil")
 	}
 
-	var tunnelResp TunnelResponse
+	var tunnelResp proto.TunnelResponse
 	b, err := json.Marshal(resp.Payload)
 	if err != nil {
 		t.Fatalf("could not marshal payload: %v", err)
@@ -181,14 +185,16 @@ func TestTunnelRegistration(t *testing.T) {
 }
 
 func TestHTTPForwarding(t *testing.T) {
-	db := utils.SetupTestDB(t)
-	defer db.Close()
+	// Init basic test environment
+	db, cleanup := testutil.SetupTestDB(t)
+	defer cleanup()
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	tokenService := auth.NewTokenService(db)
-	userRepo := auth.NewUserRepository(db)
+	tokenService := token.NewTokenService(db)
+	userRepo := user.NewUserRepository(db)
 	// Create test user
-	user := &auth.User{
+	user := &user.User{
 		ID:              0,
 		GithubID:        12345,
 		GithubUsername:  "testuser",
@@ -235,36 +241,36 @@ func TestHTTPForwarding(t *testing.T) {
 	defer ws.Close()
 
 	// Register a tunnel
-	tunnelReq := Message{
-		Type:    MessageTypeTunnelReq,
-		Payload: TunnelRequest{LocalPort: 8000},
+	tunnelReq := proto.Message{
+		Type:    proto.MessageTypeTunnelReq,
+		Payload: proto.TunnelRequest{LocalPort: 8000},
 	}
 	if err := websocket.JSON.Send(ws, tunnelReq); err != nil {
 		t.Fatal(err)
 	}
 
 	// Get the tunnel URL
-	var resp Message
+	var resp proto.Message
 	if err := websocket.JSON.Receive(ws, &resp); err != nil {
 		t.Fatal(err)
 	}
-	var tunnelResp TunnelResponse
+	var tunnelResp proto.TunnelResponse
 	b, _ := json.Marshal(resp.Payload)
 	json.Unmarshal(b, &tunnelResp)
 
 	// Capture any WebSocket messages (simulating the CLI)
 	go func() {
 		for {
-			var msg Message
+			var msg proto.Message
 			if err := websocket.JSON.Receive(ws, &msg); err != nil {
 				return
 			}
 
 			// When we get an HTTP request forwarded to us
-			if msg.Type == MessageTypeHTTPRequest {
+			if msg.Type == proto.MessageTypeHTTPRequest {
 				// Get the requestId from the http request
 				b, _ := json.Marshal(msg.Payload)
-				var req HTTPRequest
+				var req proto.HTTPRequest
 				json.Unmarshal(b, &req)
 
 				// Check the path is correct
@@ -273,9 +279,9 @@ func TestHTTPForwarding(t *testing.T) {
 				}
 
 				// Mock local server response
-				responseMsg := Message{
-					Type: MessageTypeHTTPResponse,
-					Payload: HTTPResponse{
+				responseMsg := proto.Message{
+					Type: proto.MessageTypeHTTPResponse,
+					Payload: proto.HTTPResponse{
 						StatusCode: 200,
 						Headers:    map[string]string{"Content-Type": "text/plain"},
 						Body:       []byte("Hello from local server"),
@@ -301,14 +307,16 @@ func TestHTTPForwarding(t *testing.T) {
 
 // TestClientDisconnection verifies that the server properly cleans up when a client disconnects
 func TestClientDisconnection(t *testing.T) {
-	db := utils.SetupTestDB(t)
-	defer db.Close()
+	// Init basic test environment
+	db, cleanup := testutil.SetupTestDB(t)
+	defer cleanup()
+
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := setupUnitTestEnv(t)
-	tokenService := auth.NewTokenService(db)
-	userRepo := auth.NewUserRepository(db)
+	tokenService := token.NewTokenService(db)
+	userRepo := user.NewUserRepository(db)
 	// Create test user
-	user := &auth.User{
+	user := &user.User{
 		ID:              0,
 		GithubID:        12345,
 		GithubUsername:  "testuser",
@@ -349,16 +357,16 @@ func TestClientDisconnection(t *testing.T) {
 	}
 	defer client.Close()
 
-	tunnelReq := Message{
-		Type:    MessageTypeTunnelReq,
-		Payload: TunnelRequest{LocalPort: 8000},
+	tunnelReq := proto.Message{
+		Type:    proto.MessageTypeTunnelReq,
+		Payload: proto.TunnelRequest{LocalPort: 8000},
 	}
 	if err := websocket.JSON.Send(client, tunnelReq); err != nil {
 		t.Fatal(err)
 	}
 
 	// Get tunnel response
-	var resp Message
+	var resp proto.Message
 	if err := websocket.JSON.Receive(client, &resp); err != nil {
 		t.Fatal(err)
 	}

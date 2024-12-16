@@ -1,11 +1,13 @@
 package auth
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/jwtly10/go-tunol/pkg/config"
+	"github.com/jwtly10/go-tunol/internal/auth/token"
+	"github.com/jwtly10/go-tunol/internal/config"
+	"github.com/jwtly10/go-tunol/internal/db"
+	"github.com/jwtly10/go-tunol/internal/web/user"
 	_ "github.com/mattn/go-sqlite3"
 	"html/template"
 	"log/slog"
@@ -15,22 +17,22 @@ import (
 	"strings"
 )
 
-type AuthHandler struct {
-	db             *sql.DB
+type Handler struct {
+	db             *db.Database
 	templates      *template.Template
-	tokenService   *TokenService
+	tokenService   *token.Service
 	sessionService *SessionService
-	userRepository *UserRepository
+	userRepository *user.Repository
 	cfg            *config.ServerConfig
 	logger         *slog.Logger
 }
 
-func NewAuthHandler(db *sql.DB, tmpl *template.Template, tokenService *TokenService, sessionService *SessionService, userRepository *UserRepository, cfg *config.ServerConfig, logger *slog.Logger) *AuthHandler {
+func NewAuthHandler(db *db.Database, tmpl *template.Template, tokenService *token.Service, sessionService *SessionService, userRepository *user.Repository, cfg *config.ServerConfig, logger *slog.Logger) *Handler {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 
-	return &AuthHandler{
+	return &Handler{
 		db:             db,
 		templates:      tmpl,
 		tokenService:   tokenService,
@@ -42,7 +44,7 @@ func NewAuthHandler(db *sql.DB, tmpl *template.Template, tokenService *TokenServ
 }
 
 // HandleLogin shows the login page
-func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// Check if user is already authenticated
 	cookie, err := r.Cookie(sessionCookie)
 	if err == nil {
@@ -63,7 +65,7 @@ func (h *AuthHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 // ValidateClientToken is for validation of any client HTTP requests have a valid token
-func (h *AuthHandler) ValidateClientToken(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ValidateClientToken(w http.ResponseWriter, r *http.Request) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		http.Error(w, "No token provided", http.StatusUnauthorized)
@@ -99,7 +101,7 @@ type githubUser struct {
 	Email     string `json:"email"`
 }
 
-func (h *AuthHandler) HandleGitHubLogin(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleGitHubLogin(w http.ResponseWriter, r *http.Request) {
 	state := uuid.New().String()
 
 	authURL := fmt.Sprintf(
@@ -111,7 +113,7 @@ func (h *AuthHandler) HandleGitHubLogin(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
 }
 
-func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 
@@ -138,7 +140,7 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	user := &User{
+	user := &user.User{
 		GithubID:        githubUser.ID,
 		GithubUsername:  githubUser.Login,
 		GithubAvatarURL: githubUser.AvatarURL,
@@ -175,7 +177,7 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/dashboard", http.StatusTemporaryRedirect)
 }
 
-func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(sessionCookie)
 	if err == nil {
 		err = h.sessionService.DeleteSession(cookie.Value)
@@ -199,7 +201,7 @@ func (h *AuthHandler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
 }
 
-func (h *AuthHandler) exchangeCodeForToken(code string) (string, error) {
+func (h *Handler) exchangeCodeForToken(code string) (string, error) {
 	data := url.Values{
 		"client_id":     {h.cfg.Auth.GithubClientId},
 		"client_secret": {h.cfg.Auth.GithubClientSecret},
@@ -233,7 +235,7 @@ func (h *AuthHandler) exchangeCodeForToken(code string) (string, error) {
 	return result.AccessToken, nil
 }
 
-func (h *AuthHandler) fetchGitHubUser(accessToken string) (*githubUser, error) {
+func (h *Handler) fetchGitHubUser(accessToken string) (*githubUser, error) {
 	req, err := http.NewRequest("GET", githubUserURL, nil)
 	if err != nil {
 		return nil, err
@@ -256,7 +258,7 @@ func (h *AuthHandler) fetchGitHubUser(accessToken string) (*githubUser, error) {
 	return &user, nil
 }
 
-func (h *AuthHandler) HandleValidateToken(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleValidateToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
