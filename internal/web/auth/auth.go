@@ -3,18 +3,19 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/jwtly10/go-tunol/internal/auth/token"
-	"github.com/jwtly10/go-tunol/internal/config"
-	"github.com/jwtly10/go-tunol/internal/db"
-	"github.com/jwtly10/go-tunol/internal/web/user"
-	_ "github.com/mattn/go-sqlite3"
 	"html/template"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jwtly10/go-tunol/internal/auth/token"
+	"github.com/jwtly10/go-tunol/internal/config"
+	"github.com/jwtly10/go-tunol/internal/db"
+	"github.com/jwtly10/go-tunol/internal/web/user"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type Handler struct {
@@ -104,6 +105,16 @@ type githubUser struct {
 func (h *Handler) HandleGitHubLogin(w http.ResponseWriter, r *http.Request) {
 	state := uuid.New().String()
 
+	http.SetCookie(w, &http.Cookie{
+		Name:     "github_oauth_state",
+		Value:    state,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		MaxAge:   300, // 5 minutes for the oAuth flow
+		SameSite: http.SameSiteLaxMode,
+	})
+
 	authURL := fmt.Sprintf(
 		"https://github.com/login/oauth/authorize?client_id=%s&state=%s&scope=user:email",
 		h.cfg.Auth.GithubClientId,
@@ -122,7 +133,11 @@ func (h *Handler) HandleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Validate state matches what we stored in cookie/session
+	expectedState, err := r.Cookie("github_oauth_state")
+	if err != nil || state != expectedState.Value {
+		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+		return
+	}
 
 	// Exchange code for GitHub access token
 	accessToken, err := h.exchangeCodeForToken(code)
@@ -145,6 +160,15 @@ func (h *Handler) HandleGitHubCallback(w http.ResponseWriter, r *http.Request) {
 		GithubUsername:  githubUser.Login,
 		GithubAvatarURL: githubUser.AvatarURL,
 		GithubEmail:     githubUser.Email,
+	}
+
+	// TODO, remove this after testing/dev
+	allowedUsers := []string{"jwtly10"}
+
+	if !contains(allowedUsers, user.GithubUsername) {
+		h.logger.Error("Unauthed user signed up", "username", user.GithubUsername)
+		http.Error(w, "Access denied. This service is coming soon!", http.StatusForbidden)
+		return
 	}
 
 	// Create or update user
@@ -278,4 +302,13 @@ func (h *Handler) HandleValidateToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Invalid token: %s", err), http.StatusInternalServerError)
 		return
 	}
+}
+
+func contains(arr []string, val string) bool {
+	for _, v := range arr {
+		if v == val {
+			return true
+		}
+	}
+	return false
 }
