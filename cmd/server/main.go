@@ -64,6 +64,7 @@ func setupWebRoutes(mux *http.ServeMux, t *template.Template, authMiddleware *au
 	// Protected routes
 	mux.Handle("/dashboard", authMiddleware.RequireAuth(http.HandlerFunc(dashboardHandler.HandleDashboard)))
 	mux.Handle("/dashboard/tokens", authMiddleware.RequireAuth(http.HandlerFunc(dashboardHandler.HandleCreateToken)))
+
 }
 
 func main() {

@@ -21,7 +21,8 @@ type ServerConfig struct {
 
 // ClientConfig will be set by the CLI app
 type ClientConfig struct {
-	ServerURL string
+	Ports     []int  // The ports the client is tunneling
+	ServerURL string // The server URL to connect to when handling tunnels
 	Token     string // The auth token set VIA --login
 }
 
