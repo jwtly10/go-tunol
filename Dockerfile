@@ -18,6 +18,10 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 WORKDIR /opt/go-tunol
 COPY --from=builder /app/main .
 
+# Copy go.mod and migrations so we can run migrations on the container
+COPY --from=builder /app/go.mod .
+COPY --from=builder /app/db/migrations ./db/migrations
+
 # Create data directory for SQLite
 RUN mkdir -p /opt/go-tunol/data && \
     chmod 755 /opt/go-tunol/data
