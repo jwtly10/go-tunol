@@ -21,6 +21,8 @@ COPY --from=builder /app/main .
 # Copy go.mod and migrations so we can run migrations on the container
 COPY --from=builder /app/go.mod .
 COPY --from=builder /app/db/migrations ./db/migrations
+COPY --from=builder /app/templates ./templates
+
 
 # Create data directory for SQLite
 RUN mkdir -p /opt/go-tunol/data && \
