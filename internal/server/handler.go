@@ -51,6 +51,7 @@ func NewServer(tokenService *token.Service, logger *slog.Logger, cfg *config.Ser
 
 		logger: logger,
 		cfg:    cfg,
+		done:   make(chan struct{}),
 	}
 
 	go s.cleanupLoop()
@@ -58,7 +59,8 @@ func NewServer(tokenService *token.Service, logger *slog.Logger, cfg *config.Ser
 	return s
 }
 
-func (s *Server) Handler() http.Handler {
+// WSHandler handles incoming websocket connections from the client
+func (s *Server) WSHandler() http.Handler {
 	return websocket.Handler(func(ws *websocket.Conn) {
 		// Authenticate WebSocket connection
 		if err := s.authenticateWebSocket(ws); err != nil {

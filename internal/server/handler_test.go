@@ -59,7 +59,7 @@ func TestServerStartAndAcceptConnections(t *testing.T) {
 		t.Fatalf("failed to create token: %v", err)
 	}
 
-	ts := httptest.NewServer(server.Handler())
+	ts := httptest.NewServer(server.WSHandler())
 	defer ts.Close()
 
 	wsUrl := strings.Replace(ts.URL, "http", "ws", 1)
@@ -120,7 +120,7 @@ func TestTunnelRegistration(t *testing.T) {
 	}
 
 	server := NewServer(tokenService, logger, &cfg)
-	ts := httptest.NewServer(server.Handler())
+	ts := httptest.NewServer(server.WSHandler())
 	defer ts.Close()
 
 	wsUrl := strings.Replace(ts.URL, "http", "ws", 1)
@@ -213,7 +213,7 @@ func TestHTTPForwarding(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
-			server.Handler().ServeHTTP(w, r)
+			server.WSHandler().ServeHTTP(w, r)
 		} else {
 			server.ServeHTTP(w, r)
 		}
@@ -335,7 +335,7 @@ func TestClientDisconnection(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
-			server.Handler().ServeHTTP(w, r)
+			server.WSHandler().ServeHTTP(w, r)
 		} else {
 			server.ServeHTTP(w, r)
 		}

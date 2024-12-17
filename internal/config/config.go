@@ -2,10 +2,11 @@ package config
 
 import (
 	"fmt"
-	"github.com/joho/godotenv"
-	"golang.org/x/net/websocket"
 	"os"
 	"strings"
+
+	"github.com/joho/godotenv"
+	"golang.org/x/net/websocket"
 )
 
 type Config struct {
@@ -16,7 +17,8 @@ type Config struct {
 type ServerConfig struct {
 	BaseURL string `env:"SERVER_URL" required:"true"`
 	Port    string `env:"SERVER_PORT"`
-	Auth    AuthConfig
+
+	Auth AuthConfig
 }
 
 // ClientConfig will be set by the CLI app

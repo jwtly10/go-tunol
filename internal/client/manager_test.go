@@ -69,7 +69,7 @@ func TestCanCreateTunnels(t *testing.T) {
 
 	// Set up test
 	server := server.NewServer(tokenService, logger, sCfg)
-	ts := httptest.NewServer(server.Handler())
+	ts := httptest.NewServer(server.WSHandler())
 	defer ts.Close()
 	// update the manager config to point to test server
 	cCfg.ServerURL = ts.URL
@@ -139,7 +139,7 @@ func TestHandleIncomingRequests(t *testing.T) {
 	// Create test HTTP server with ws support
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
-			server.Handler().ServeHTTP(w, r)
+			server.WSHandler().ServeHTTP(w, r)
 		} else {
 			server.ServeHTTP(w, r)
 		}
@@ -246,7 +246,7 @@ func TestClientAuthentication(t *testing.T) {
 
 			server := server.NewServer(tokenService, logger, s)
 
-			ts := httptest.NewServer(server.Handler())
+			ts := httptest.NewServer(server.WSHandler())
 			defer ts.Close()
 
 			tsURL, _ := url.Parse(ts.URL)
@@ -361,7 +361,7 @@ func TestClientRequestEvents(t *testing.T) {
 
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Upgrade") == "websocket" {
-					server.Handler().ServeHTTP(w, r)
+					server.WSHandler().ServeHTTP(w, r)
 				} else {
 					server.ServeHTTP(w, r)
 				}

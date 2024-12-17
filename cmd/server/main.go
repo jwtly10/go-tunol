@@ -64,7 +64,29 @@ func setupWebRoutes(mux *http.ServeMux, t *template.Template, authMiddleware *au
 	// Protected routes
 	mux.Handle("/dashboard", authMiddleware.RequireAuth(http.HandlerFunc(dashboardHandler.HandleDashboard)))
 	mux.Handle("/dashboard/tokens", authMiddleware.RequireAuth(http.HandlerFunc(dashboardHandler.HandleCreateToken)))
+}
 
+func setupTunnelRoutes(mux *http.ServeMux, tunnelServer *server.Server) {
+	// Handles either / or proxy requests
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// Handling index
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
+			return
+		}
+
+		// For all other paths (like /tunnel_id/), we handle as proxy req
+		tunnelServer.ServeHTTP(w, r)
+	})
+
+	// Handle tunnel requests
+	mux.HandleFunc("/tunnel", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Upgrade") != "websocket" {
+			http.Error(w, "Expected WebSocket connection", http.StatusBadRequest)
+			return
+		}
+		tunnelServer.WSHandler().ServeHTTP(w, r)
+	})
 }
 
 func main() {
@@ -102,35 +124,7 @@ func main() {
 	// Setup mux and routes
 	mux := http.NewServeMux()
 	setupWebRoutes(mux, templates, authMiddleware, dashboardHandler, authHandler)
-
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Just so we can have a nice landing page on root URL
-		if r.URL.Path == "/" {
-			logger.Info("redirecting root request to login")
-			http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
-			return
-		}
-		logger.Debug("handling tunnel proxy request",
-			"path", r.URL.Path,
-			"method", r.Method,
-			"remote_addr", r.RemoteAddr)
-
-		// For all other paths (like /abc123/), try to handle as tunnel request
-		// the server will handle the request as needed
-		tunnelServer.ServeHTTP(w, r)
-	})
-
-	// Handle tunnel requests
-	mux.HandleFunc("/tunnel", func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Upgrade") != "websocket" {
-			logger.Warn("non-websocket request to /tunnel endpoint",
-				"remote_addr", r.RemoteAddr,
-				"method", r.Method)
-			http.Error(w, "Expected WebSocket connection", http.StatusBadRequest)
-			return
-		}
-		tunnelServer.Handler().ServeHTTP(w, r)
-	})
+	setupTunnelRoutes(mux, tunnelServer)
 
 	// Start server
 	port := ":" + cfg.Server.Port
