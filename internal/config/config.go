@@ -82,7 +82,7 @@ func LoadConfig() (*Config, error) {
 // HTTPURL returns the full HTTP URL of the server
 func (c *ServerConfig) HTTPURL() string {
 	baseURL := strings.TrimSuffix(c.BaseURL, "/")
-	if c.Port == "" {
+	if c.Port == "" || strings.Contains(c.BaseURL, "https://") { // On prod, we don't need to specify the port
 		return baseURL
 	}
 	return fmt.Sprintf("%s:%s", baseURL, c.Port)
