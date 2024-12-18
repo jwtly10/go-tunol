@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -102,10 +101,18 @@ func (th *TunnelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		th.logger.Warn("tunnel not found", "id", tunnelId)
 		w.WriteHeader(http.StatusNotFound)
 
-		data := map[string]interface{}{
-			"TunnelID":      tunnelId,
-			"FullTunnelURL": strings.Replace(r.Host+"/"+r.URL.String(), realPath, "", 1),
-			"FullHost":      r.Host,
+		// nicer formatting of content for the template
+		var data map[string]interface{}
+		if th.cfg.UseSubdomains {
+			// x8q4j44y.tunol.dev/
+			data = map[string]interface{}{
+				"TunnelUrl": r.Host,
+			}
+		} else {
+			// localhost:8001/local/fjkdsfs  or
+			data = map[string]interface{}{
+				"TunnelUrl": r.Host + "/local/" + tunnelId,
+			}
 		}
 
 		if err := th.templates.ExecuteTemplate(w, "tunnel-not-found", data); err != nil {
