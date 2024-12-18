@@ -49,7 +49,7 @@ func main() {
 	dashboardHandler := dashboard.NewDashboardHandler(templates, tokenService, logger)
 
 	// Initialize handlers
-	tunnelHandler := server.NewTunnelHandler(tokenService, logger, &cfg.Server)
+	tunnelHandler := server.NewTunnelHandler(tokenService, templates, logger, &cfg.Server)
 	webHandler := server.NewWebHandler(templates, authMiddleware, dashboardHandler, authHandler, logger)
 
 	// Initialize server

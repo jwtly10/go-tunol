@@ -1,10 +1,12 @@
 package server
 
 import (
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +20,7 @@ type TunnelHandler struct {
 	tunnels         map[string]*Tunnel
 	pendingRequests map[string]chan *proto.HTTPResponse
 	tokenService    *token.Service
+	templates       *template.Template
 
 	mu     sync.Mutex
 	logger *slog.Logger
@@ -35,7 +38,7 @@ type Tunnel struct {
 	Created      time.Time
 }
 
-func NewTunnelHandler(tokenService *token.Service, logger *slog.Logger, cfg *config.ServerConfig) *TunnelHandler {
+func NewTunnelHandler(tokenService *token.Service, templates *template.Template, logger *slog.Logger, cfg *config.ServerConfig) *TunnelHandler {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
@@ -43,6 +46,7 @@ func NewTunnelHandler(tokenService *token.Service, logger *slog.Logger, cfg *con
 		tunnels:         make(map[string]*Tunnel),
 		pendingRequests: make(map[string]chan *proto.HTTPResponse),
 		tokenService:    tokenService,
+		templates:       templates,
 
 		logger: logger,
 		cfg:    cfg,
@@ -96,7 +100,17 @@ func (th *TunnelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if !exists {
 		th.logger.Warn("tunnel not found", "id", tunnelId)
-		http.NotFound(w, r)
+		w.WriteHeader(http.StatusNotFound)
+
+		data := map[string]interface{}{
+			"TunnelID":      tunnelId,
+			"FullTunnelURL": strings.Replace(r.Host+"/"+r.URL.String(), realPath, "", 1),
+			"FullHost":      r.Host,
+		}
+
+		if err := th.templates.ExecuteTemplate(w, "tunnel-not-found", data); err != nil {
+			th.logger.Error("failed to render not found template", "error", err)
+		}
 		return
 	}
 

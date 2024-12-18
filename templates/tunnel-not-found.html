@@ -1,0 +1,70 @@
+{{define "tunnel-not-found"}}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Tunnel not found - tunol.dev</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="flex flex-col min-h-screen bg-gray-50">
+    <div class="flex-grow max-w-3xl mx-auto px-4 py-12">
+        <main class="flex items-center justify-center p-4 min-h-[calc(100vh-14rem)]">
+            <div class="max-w-lg w-full space-y-8">
+                <div class="text-center">
+                    <h1 class="text-4xl font-bold text-gray-900 mb-2">404</h1>
+                    <h2 class="text-2xl font-semibold text-gray-700">Tunnel Not Found</h2>
+                </div>
+
+                <div class="bg-white shadow-lg rounded-lg overflow-hidden">
+                    <div class="p-6">
+                        <div class="flex items-center mb-4">
+                            <div class="flex-shrink-0">
+                                <svg class="h-6 w-6 text-gray-400" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                            <div class="ml-3">
+                                <h3 class="text-lg font-medium text-gray-900">
+                                    Tunnel "{{.TunnelID}}" doesn't exist
+                                </h3>
+                            </div>
+                        </div>
+                        <div class="text-gray-600">
+                            <p class="mb-4">
+                                The tunnel <code class="bg-gray-100 px-2 py-1 rounded text-sm">{{.FullTunnelURL}}</code>
+                                was not found.
+                            </p>
+                            <p class="text-sm">
+                                If you're the tunnel owner, make sure:
+                            <ul class="list-disc ml-5 mt-2 space-y-1">
+                                <li>Your local service is running</li>
+                                <li>The tunol CLI is connected</li>
+                                <li>You're using the correct tunnel ID</li>
+                            </ul>
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-50 px-6 py-4 border-t border-gray-100">
+                        <div class="text-sm text-gray-500">
+                            Need to create a tunnel? Use our CLI tool to get started:
+                            <div class="mt-2 bg-gray-100 p-2 rounded font-mono text-sm">
+                                $ tunol --port 8080 --custom custom_tunnel_id
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    {{template "footer" .}}
+</body>
+
+</html>
+{{end}}
