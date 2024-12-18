@@ -69,6 +69,6 @@ jobs:
               -e GITHUB_CLIENT_ID=${{ secrets.GH_CLIENT_ID }} \
               -e GITHUB_CLIENT_SECRET=${{ secrets.GH_CLIENT_SECRET }} \
               -e DB_PATH=${{ secrets.DB_PATH }} \
-              -e LOG_LEVEL{{ vars.LOG_LEVEL }} \
-              -e USE_SUBDOMAINS{{ vars.USE_SUBDOMAINS }} \
+              -e LOG_LEVEL=${{ vars.LOG_LEVEL }} \
+              -e USE_SUBDOMAINS=${{ vars.USE_SUBDOMAINS }} \
               joshwatley/go-tunol:latest
