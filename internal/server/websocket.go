@@ -118,13 +118,13 @@ func (th *TunnelHandler) handleWS(ws *websocket.Conn) {
 			th.logger.Info("new tunnel registered", "totalTunnels", len(th.tunnels), "id", id, "localPort", req.LocalPort, "url", t.Path)
 
 		case proto.MessageTypeHTTPResponse:
-			th.logger.Info("received http response from tunnel", "payload", msg.Payload)
 			var resp proto.HTTPResponse
 			b, _ := json.Marshal(msg.Payload)
 			if err := json.Unmarshal(b, &resp); err != nil {
 				th.logger.Error("failed to unmarshal HTTP response", "error", err)
 				continue
 			}
+			th.logger.Info("received http response from tunnel", "requestId", resp.RequestId, "status", resp.StatusCode)
 
 			th.mu.Lock()
 			if ch, exists := th.pendingRequests[resp.RequestId]; exists {

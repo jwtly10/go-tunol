@@ -179,7 +179,8 @@ func (th *TunnelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(resp.StatusCode)
 		w.Write(resp.Body)
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second): // TODO: Make this some sort of configurable timeout
+
 		http.Error(w, "Request timed out", http.StatusGatewayTimeout)
 	}
 }

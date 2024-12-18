@@ -42,6 +42,9 @@ Your local service will be available at a generated URL like: `https://tunol.dev
 
 ## Development
 
+export TUNOL_CONFIG_DIR=~/.tunol-dev
+export TUNOL_SERVER_URL_DIR=http://localhost:8001
+
 ```bash
 # Clone the repository
 git clone https://github.com/jwtly10/go-tunol.git

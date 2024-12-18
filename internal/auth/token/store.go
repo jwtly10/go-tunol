@@ -11,6 +11,15 @@ type Store struct {
 }
 
 func NewTokenStore() (*Store, error) {
+	if configPath := os.Getenv("TUNOL_CONFIG_DIR"); configPath != "" {
+		if err := os.MkdirAll(configPath, 0700); err != nil {
+			return nil, fmt.Errorf("failed to create config directory: %w", err)
+		}
+		return &Store{
+			configPath: filepath.Join(configPath, "token"),
+		}, nil
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
