@@ -1,13 +1,7 @@
 package client
 
 import (
-	"github.com/jwtly10/go-tunol/internal/auth/token"
-	"github.com/jwtly10/go-tunol/internal/config"
-	"github.com/jwtly10/go-tunol/internal/server"
-	testutil "github.com/jwtly10/go-tunol/internal/testutils"
-	"github.com/jwtly10/go-tunol/internal/utils"
-	"github.com/jwtly10/go-tunol/internal/web/user"
-	"github.com/stretchr/testify/require"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,6 +12,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jwtly10/go-tunol/internal/auth/token"
+	"github.com/jwtly10/go-tunol/internal/config"
+	"github.com/jwtly10/go-tunol/internal/server"
+	testutil "github.com/jwtly10/go-tunol/internal/testutils"
+	"github.com/jwtly10/go-tunol/internal/utils"
+	"github.com/jwtly10/go-tunol/internal/web/user"
+	"github.com/stretchr/testify/require"
 )
 
 func setupUnitTestEnv(t *testing.T) (*config.ServerConfig, *config.ClientConfig) {
@@ -68,7 +70,8 @@ func TestCanCreateTunnels(t *testing.T) {
 	cCfg.Token = token.PlainToken
 
 	// Set up test
-	tunnelHandler := server.NewTunnelHandler(tokenService, logger, sCfg)
+	tmpl := template.Must(template.New("test").Parse("test"))
+	tunnelHandler := server.NewTunnelHandler(tokenService, tmpl, logger, sCfg)
 	ts := httptest.NewServer(tunnelHandler.HandleWS())
 	defer ts.Close()
 	// update the manager config to point to test server
@@ -134,7 +137,8 @@ func TestHandleIncomingRequests(t *testing.T) {
 	}
 	c.Token = token.PlainToken
 
-	tunnelHandler := server.NewTunnelHandler(tokenService, logger, s)
+	tmpl := template.Must(template.New("test").Parse("test"))
+	tunnelHandler := server.NewTunnelHandler(tokenService, tmpl, logger, s)
 	// Create test HTTP server with ws support
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
@@ -243,7 +247,8 @@ func TestClientAuthentication(t *testing.T) {
 			// Set the manager token based on the test
 			c.Token = tc.token
 
-			tunnelHandler := server.NewTunnelHandler(tokenService, logger, s)
+			tmpl := template.Must(template.New("test").Parse("test"))
+			tunnelHandler := server.NewTunnelHandler(tokenService, tmpl, logger, s)
 			ts := httptest.NewServer(tunnelHandler.HandleWS())
 			defer ts.Close()
 
@@ -355,7 +360,8 @@ func TestClientRequestEvents(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tunnelHandler := server.NewTunnelHandler(tokenService, logger, s)
+			tmpl := template.Must(template.New("test").Parse("test"))
+			tunnelHandler := server.NewTunnelHandler(tokenService, tmpl, logger, s)
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Upgrade") == "websocket" {
 					tunnelHandler.HandleWS().ServeHTTP(w, r)

@@ -2,11 +2,7 @@ package server
 
 import (
 	"encoding/json"
-	"github.com/jwtly10/go-tunol/internal/auth/token"
-	"github.com/jwtly10/go-tunol/internal/proto"
-	testutil "github.com/jwtly10/go-tunol/internal/testutils"
-	"github.com/jwtly10/go-tunol/internal/web/user"
-	"github.com/stretchr/testify/require"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,6 +12,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jwtly10/go-tunol/internal/auth/token"
+	"github.com/jwtly10/go-tunol/internal/proto"
+	testutil "github.com/jwtly10/go-tunol/internal/testutils"
+	"github.com/jwtly10/go-tunol/internal/web/user"
+	"github.com/stretchr/testify/require"
 
 	"github.com/jwtly10/go-tunol/internal/config"
 	"golang.org/x/net/websocket"
@@ -59,7 +61,9 @@ func TestServerStartAndAcceptConnections(t *testing.T) {
 		t.Fatalf("failed to create token: %v", err)
 	}
 
-	tunnelHandler := NewTunnelHandler(tokenService, logger, &cfg)
+	// TODO: This is probably a terrible way to mock this
+	tmpl := template.Must(template.New("test").Parse("test"))
+	tunnelHandler := NewTunnelHandler(tokenService, tmpl, logger, &cfg)
 	ts := httptest.NewServer(tunnelHandler.HandleWS())
 	defer ts.Close()
 
@@ -121,7 +125,8 @@ func TestTunnelRegistration(t *testing.T) {
 		t.Fatalf("failed to create token: %v", err)
 	}
 
-	tunnelHandler := NewTunnelHandler(tokenService, logger, &cfg)
+	tmpl := template.Must(template.New("test").Parse("test"))
+	tunnelHandler := NewTunnelHandler(tokenService, tmpl, logger, &cfg)
 	ts := httptest.NewServer(tunnelHandler.HandleWS())
 	defer ts.Close()
 
@@ -211,7 +216,8 @@ func TestHTTPForwarding(t *testing.T) {
 		t.Fatalf("failed to create token: %v", err)
 	}
 
-	tunnelHandler := NewTunnelHandler(tokenService, logger, &cfg)
+	tmpl := template.Must(template.New("test").Parse("test"))
+	tunnelHandler := NewTunnelHandler(tokenService, tmpl, logger, &cfg)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
 			tunnelHandler.HandleWS().ServeHTTP(w, r)
@@ -332,7 +338,8 @@ func TestClientDisconnection(t *testing.T) {
 		t.Fatalf("failed to create token: %v", err)
 	}
 
-	tunnelHandler := NewTunnelHandler(tokenService, logger, &cfg)
+	tmpl := template.Must(template.New("test").Parse("test"))
+	tunnelHandler := NewTunnelHandler(tokenService, tmpl, logger, &cfg)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
 			tunnelHandler.HandleWS().ServeHTTP(w, r)
