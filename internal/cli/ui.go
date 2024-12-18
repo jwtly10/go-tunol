@@ -115,7 +115,7 @@ func (a *App) render() string {
 
 	// Admin Tool Section
 	b.WriteString(color.Bold.Sprint("🔗 ADMIN TOOL\n"))
-	b.WriteString(color.Green.Sprint("   http://localhost:9000\n\n")) // TODO: Implement this frontend admin dash
+	// b.WriteString(color.Green.Sprint("   http://localhost:9000 (coming soon)\n\n")) // TODO: Implement this
 
 	// Stats Section
 	b.WriteString(color.Bold.Sprint("📊 STATS (last 60s)\n"))
@@ -174,7 +174,7 @@ func (a *App) render() string {
 	}
 
 	// Footer
-	b.WriteString("\nPress Ctrl+C to quit • Press 'c' to clear logs\n")
+	b.WriteString("\nPress Ctrl+C to quit\n")
 	return b.String()
 }
 
