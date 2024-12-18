@@ -38,9 +38,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// But on prod this will look more like
 	// https://tunnelID.tunol.dev/externalpath
 
-	if s.cfg.UseSubdomains && strings.Contains(r.Host, ".") {
-		s.tunnel.ServeHTTP(w, r)
-		return
+	if s.cfg.UseSubdomains {
+		parts := strings.Split(r.Host, ".")
+
+		// Check if we have a subdomain (more than 2 parts and not "www")
+		if len(parts) > 2 && parts[0] != "www" {
+			s.tunnel.ServeHTTP(w, r)
+			return
+		}
 	}
 
 	if strings.HasPrefix(r.URL.Path, "/local/") {
