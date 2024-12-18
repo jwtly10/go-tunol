@@ -42,7 +42,7 @@ func TestServerStartAndAcceptConnections(t *testing.T) {
 	cfg := setupUnitTestEnv(t)
 	tokenService := token.NewTokenService(db)
 	userRepo := user.NewUserRepository(db)
-	server := NewServer(tokenService, logger, &cfg)
+
 	// Create test user
 	user := &user.User{
 		ID:              0,
@@ -59,7 +59,8 @@ func TestServerStartAndAcceptConnections(t *testing.T) {
 		t.Fatalf("failed to create token: %v", err)
 	}
 
-	ts := httptest.NewServer(server.WSHandler())
+	tunnelHandler := NewTunnelHandler(tokenService, logger, &cfg)
+	ts := httptest.NewServer(tunnelHandler.HandleWS())
 	defer ts.Close()
 
 	wsUrl := strings.Replace(ts.URL, "http", "ws", 1)
@@ -103,6 +104,7 @@ func TestTunnelRegistration(t *testing.T) {
 	cfg := setupUnitTestEnv(t)
 	tokenService := token.NewTokenService(db)
 	userRepo := user.NewUserRepository(db)
+
 	// Create test user
 	user := &user.User{
 		ID:              0,
@@ -119,8 +121,8 @@ func TestTunnelRegistration(t *testing.T) {
 		t.Fatalf("failed to create token: %v", err)
 	}
 
-	server := NewServer(tokenService, logger, &cfg)
-	ts := httptest.NewServer(server.WSHandler())
+	tunnelHandler := NewTunnelHandler(tokenService, logger, &cfg)
+	ts := httptest.NewServer(tunnelHandler.HandleWS())
 	defer ts.Close()
 
 	wsUrl := strings.Replace(ts.URL, "http", "ws", 1)
@@ -179,8 +181,8 @@ func TestTunnelRegistration(t *testing.T) {
 		t.Fatalf("expected URL to be longer and include an ID, got %s", tunnelResp.URL)
 	}
 
-	if len(server.tunnels) != 1 {
-		t.Fatalf("expected to have added 1 tunnel, got %d", len(server.tunnels))
+	if len(tunnelHandler.tunnels) != 1 {
+		t.Fatalf("expected to have added 1 tunnel, got %d", len(tunnelHandler.tunnels))
 	}
 }
 
@@ -209,13 +211,12 @@ func TestHTTPForwarding(t *testing.T) {
 		t.Fatalf("failed to create token: %v", err)
 	}
 
-	server := NewServer(tokenService, logger, &cfg)
-
+	tunnelHandler := NewTunnelHandler(tokenService, logger, &cfg)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
-			server.WSHandler().ServeHTTP(w, r)
+			tunnelHandler.HandleWS().ServeHTTP(w, r)
 		} else {
-			server.ServeHTTP(w, r)
+			tunnelHandler.ServeHTTP(w, r)
 		}
 	}))
 	defer ts.Close()
@@ -331,13 +332,12 @@ func TestClientDisconnection(t *testing.T) {
 		t.Fatalf("failed to create token: %v", err)
 	}
 
-	server := NewServer(tokenService, logger, &cfg)
-
+	tunnelHandler := NewTunnelHandler(tokenService, logger, &cfg)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
-			server.WSHandler().ServeHTTP(w, r)
+			tunnelHandler.HandleWS().ServeHTTP(w, r)
 		} else {
-			server.ServeHTTP(w, r)
+			tunnelHandler.ServeHTTP(w, r)
 		}
 	}))
 	defer ts.Close()
@@ -372,18 +372,18 @@ func TestClientDisconnection(t *testing.T) {
 	}
 
 	// Verify tunnel was created
-	if len(server.tunnels) != 1 {
-		t.Fatalf("expected 1 tunnel, got %d", len(server.tunnels))
+	if len(tunnelHandler.tunnels) != 1 {
+		t.Fatalf("expected 1 tunnel, got %d", len(tunnelHandler.tunnels))
 	}
 
-	// Simulate the server closing
+	// Simulate the tunnelHandler closing
 	client.Close()
 
 	time.Sleep(100 * time.Millisecond)
 
-	server.mu.Lock()
-	finalTunnels := len(server.tunnels)
-	server.mu.Unlock()
+	tunnelHandler.mu.Lock()
+	finalTunnels := len(tunnelHandler.tunnels)
+	tunnelHandler.mu.Unlock()
 
 	if finalTunnels != 0 {
 		t.Errorf("expected 0 tunnels after disconnect, got %d", finalTunnels)

@@ -68,8 +68,8 @@ func TestCanCreateTunnels(t *testing.T) {
 	cCfg.Token = token.PlainToken
 
 	// Set up test
-	server := server.NewServer(tokenService, logger, sCfg)
-	ts := httptest.NewServer(server.WSHandler())
+	tunnelHandler := server.NewTunnelHandler(tokenService, logger, sCfg)
+	ts := httptest.NewServer(tunnelHandler.HandleWS())
 	defer ts.Close()
 	// update the manager config to point to test server
 	cCfg.ServerURL = ts.URL
@@ -134,14 +134,13 @@ func TestHandleIncomingRequests(t *testing.T) {
 	}
 	c.Token = token.PlainToken
 
-	server := server.NewServer(tokenService, logger, s)
-
+	tunnelHandler := server.NewTunnelHandler(tokenService, logger, s)
 	// Create test HTTP server with ws support
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Upgrade") == "websocket" {
-			server.WSHandler().ServeHTTP(w, r)
+			tunnelHandler.HandleWS().ServeHTTP(w, r)
 		} else {
-			server.ServeHTTP(w, r)
+			tunnelHandler.ServeHTTP(w, r)
 		}
 	}))
 	defer ts.Close()
@@ -244,9 +243,8 @@ func TestClientAuthentication(t *testing.T) {
 			// Set the manager token based on the test
 			c.Token = tc.token
 
-			server := server.NewServer(tokenService, logger, s)
-
-			ts := httptest.NewServer(server.WSHandler())
+			tunnelHandler := server.NewTunnelHandler(tokenService, logger, s)
+			ts := httptest.NewServer(tunnelHandler.HandleWS())
 			defer ts.Close()
 
 			tsURL, _ := url.Parse(ts.URL)
@@ -357,13 +355,12 @@ func TestClientRequestEvents(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			server := server.NewServer(tokenService, logger, s)
-
+			tunnelHandler := server.NewTunnelHandler(tokenService, logger, s)
 			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Upgrade") == "websocket" {
-					server.WSHandler().ServeHTTP(w, r)
+					tunnelHandler.HandleWS().ServeHTTP(w, r)
 				} else {
-					server.ServeHTTP(w, r)
+					tunnelHandler.ServeHTTP(w, r)
 				}
 			}))
 			defer ts.Close()
@@ -440,20 +437,3 @@ func TestClientRequestEvents(t *testing.T) {
 		})
 	}
 }
-
-//{
-//name: "failed_token_auth",
-//localHandler: func(w http.ResponseWriter, r *http.Request) {
-//	// not under test
-//},
-//expectedEvent: Event{
-//Type: EventTypeError,
-//Payload: ErrorEvent{
-//Error: "token not found",
-//},
-//},
-//makeRequest: func(url string) (*http.Response, error) {
-//	// not under test
-//	return nil, nil
-//},
-//},
