@@ -21,6 +21,24 @@ func main() {
 		http.Error(w, "Failed request", http.StatusInternalServerError)
 	})
 
+	http.HandleFunc("/auth", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "Auth endpoint reached! Method: %s\n", r.Method)
+
+		// Check for auth headers
+		if r.Header.Get("Authorization") == "" {
+			http.Error(w, "Unauthorized - missing token", http.StatusUnauthorized)
+			return
+		}
+
+		// Check for correct token
+		if r.Header.Get("Authorization") != "Bearer token" {
+			http.Error(w, "Unauthorized - invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		fmt.Fprintf(w, "Authorized request\n")
+	})
+
 	http.HandleFunc("/api/test", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "API Test endpoint reached! Method: %s\n", r.Method)
 	})

@@ -1,4 +1,4 @@
-name: Build, Push and Deploy Go-Tunol Server
+name: Build, Push and Deploy
 
 on:
   push:

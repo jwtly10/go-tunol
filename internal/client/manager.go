@@ -4,14 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/jwtly10/go-tunol/internal/config"
-	"github.com/jwtly10/go-tunol/internal/proto"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/jwtly10/go-tunol/internal/config"
+	"github.com/jwtly10/go-tunol/internal/proto"
 
 	"golang.org/x/net/websocket"
 )
@@ -210,6 +212,7 @@ func (c *manager) handleMessages(t *tunnel) {
 				c.logger.Error("failed to unmarshal HTTP request", "error", err)
 				continue
 			}
+			c.logger.Info("3. client received from websocket", "headers", httpReq.Headers)
 
 			// Forward the generated request to local host
 			go func() {
@@ -221,11 +224,62 @@ func (c *manager) handleMessages(t *tunnel) {
 					return
 				}
 
+				c.logger.Info("headers set when originally forwarding request to local", "headers", httpReq.Headers)
+
+				// Here we need to carefully clean headers to avoid issues with conflicting headers
+				// between cloudflare and any third party services
+
+				isWebSocketUpgrade := strings.EqualFold(httpReq.Headers["Upgrade"], "websocket") &&
+					strings.EqualFold(httpReq.Headers["Connection"], "upgrade")
+
+					// Base headers that are always kept
+				var headersToKeep = map[string]bool{
+					"host":              true,
+					"user-agent":        true,
+					"accept":            true,
+					"accept-encoding":   true,
+					"accept-language":   true,
+					"content-type":      true,
+					"cookie":            true,
+					"x-forwarded-for":   true,
+					"x-forwarded-proto": true,
+					"x-real-ip":         true,
+					"authorization":     true,
+				}
+
+				// Add WebSocket specific headers if needed
+				if isWebSocketUpgrade {
+					headersToKeep["connection"] = true
+					headersToKeep["upgrade"] = true
+					headersToKeep["sec-websocket-key"] = true
+					headersToKeep["sec-websocket-version"] = true
+					headersToKeep["sec-websocket-protocol"] = true
+					headersToKeep["sec-websocket-extensions"] = true
+				}
+
+				cleaned := make(map[string]string)
 				for k, v := range httpReq.Headers {
+					headerLower := strings.ToLower(k)
+					if headersToKeep[headerLower] {
+						cleaned[k] = v
+					}
+				}
+
+				c.logger.Info("headers after cleaning", "headers", cleaned)
+
+				for k, v := range cleaned {
 					req.Header.Set(k, v)
 				}
 
-				resp, err := http.DefaultClient.Do(req)
+				c.logger.Info("4. making local request", "headers", cleaned)
+
+				client := &http.Client{
+					CheckRedirect: func(req *http.Request, via []*http.Request) error {
+						return http.ErrUseLastResponse // Don't follow redirects
+					},
+				}
+
+				resp, err := client.Do(req)
 				if err != nil {
 					c.logger.Error("failed to make HTTP request", "error", err)
 					return
@@ -238,11 +292,21 @@ func (c *manager) handleMessages(t *tunnel) {
 					return
 				}
 
-				// Build the response message
 				headers := make(map[string]string)
 				for k, v := range resp.Header {
 					headers[k] = v[0]
 				}
+
+				if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+					location := resp.Header["Location"]
+					c.logger.Info("redirect detected",
+						"status_code", resp.StatusCode,
+						"location", location,
+						"original_path", httpReq.Path,
+						"request_id", httpReq.RequestId)
+				}
+
+				c.logger.Info("5. local request response", "headers", headers)
 
 				wsResp := proto.Message{
 					Type: proto.MessageTypeHTTPResponse,

@@ -111,7 +111,7 @@ func (h *Handler) HandleGitHubLogin(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true,
-		MaxAge:   300, // 5 minutes for the oAuth flow
+		MaxAge:   300, // 5 minutes to login
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -121,7 +121,9 @@ func (h *Handler) HandleGitHubLogin(w http.ResponseWriter, r *http.Request) {
 		state,
 	)
 
-	http.Redirect(w, r, authURL, http.StatusTemporaryRedirect)
+	// Only pass the headers that are needed to github
+	w.Header().Set("Location", authURL)
+	w.WriteHeader(http.StatusTemporaryRedirect)
 }
 
 func (h *Handler) HandleGitHubCallback(w http.ResponseWriter, r *http.Request) {

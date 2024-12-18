@@ -1,11 +1,14 @@
 package server
 
 import (
+	"bytes"
+	"compress/gzip"
 	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,6 +87,7 @@ func (th *TunnelHandler) HandleWS() http.Handler {
 
 // ServeHTTP handles incoming HTTP tunnel requests from the client, for proxying to the CLI tunnel
 func (th *TunnelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	th.logger.Info("1. initial request proxied from cloudflare", "headers", r.Header)
 	th.logger.Info("received http request", "method", r.Method, "rawPath", r.URL.Path)
 
 	// https://tunelID.tunol.dev/some_external_path/and/maybe/more
@@ -137,6 +141,7 @@ func (th *TunnelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Map the HTTP request to a WS message
+	th.logger.Info("initial request headers", "headers", r.Header)
 	headers := make(map[string]string)
 	for k, v := range r.Header {
 		headers[k] = v[0]
@@ -157,12 +162,19 @@ func (th *TunnelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		RequestId: requestId,
 	}
 
-	th.logger.Info("forwarding http request to tunnel", "tunnel_id", tunnelId, "request_id", requestId, "path", realPath)
-
 	msg := proto.Message{
 		Type:    proto.MessageTypeHTTPRequest,
 		Payload: httpReq,
 	}
+
+	th.logger.Info("fowarding http request to tunel ",
+		"tunnel_id", tunnelId,
+		"headers", httpReq.Headers,
+		"method", r.Method,
+		"path", realPath,
+		"requestId", requestId)
+
+	th.logger.Info("2. sending through websocket", "headers", httpReq.Headers)
 
 	if err := websocket.JSON.Send(tunnel.WSConn, msg); err != nil {
 		http.Error(w, "Failed to forward request", http.StatusInternalServerError)
@@ -172,13 +184,104 @@ func (th *TunnelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Wait for response with timeout
 	select {
 	case resp := <-respChan:
-		// Response has been received
-		// Write the response back to the client
+		th.logger.Info("received response through tunnel",
+			"requestId", requestId,
+			"statusCode", resp.StatusCode,
+			"responseHeaders", resp.Headers)
+
+		// Similar to client
+		// We, need to clean up any headers that may conflict with cloudflare
+
+		isWebSocketUpgrade := strings.EqualFold(resp.Headers["Upgrade"], "websocket") &&
+			strings.EqualFold(resp.Headers["Connection"], "upgrade")
+
+		// Headers to keep
+		var responseHeadersToKeep = map[string]bool{
+			"content-type":   true,
+			"content-length": true,
+			"set-cookie":     true,
+			"location":       true,
+			"cache-control":  true,
+			"expires":        true,
+			"etag":           true,
+			"last-modified":  true,
+			"vary":           true,
+			"x-request-id":   true,
+			"date":           true,
+			"server":         true,
+			"authorization":  true,
+		}
+
+		// Add WebSocket specific headers if needed
+		if isWebSocketUpgrade {
+			responseHeadersToKeep["connection"] = true
+			responseHeadersToKeep["upgrade"] = true
+			responseHeadersToKeep["sec-websocket-key"] = true
+			responseHeadersToKeep["sec-websocket-version"] = true
+			responseHeadersToKeep["sec-websocket-protocol"] = true
+			responseHeadersToKeep["sec-websocket-extensions"] = true
+		}
+
+		cleaned := make(map[string]string)
 		for k, v := range resp.Headers {
+			headerLower := strings.ToLower(k)
+			if responseHeadersToKeep[headerLower] {
+				cleaned[k] = v
+			}
+		}
+
+		// We also need to handle gzipped responses
+		if isGzipped(resp.Headers) {
+			delete(cleaned, "Content-Encoding")
+
+			reader, err := gzip.NewReader(bytes.NewReader(resp.Body))
+			if err != nil {
+				th.logger.Error("failed to create gzip reader", "error", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			defer reader.Close()
+
+			// Read the uncompressed content
+			uncompressedBody, err := io.ReadAll(reader)
+			if err != nil {
+				th.logger.Error("failed to read gzipped content", "error", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+
+			for k, v := range cleaned {
+				w.Header().Set(k, v)
+			}
+
+			th.logger.Info("final response details",
+				"status_code", resp.StatusCode,
+				"is_redirect", resp.StatusCode >= 300 && resp.StatusCode < 400,
+				"final_location", w.Header().Get("Location"),
+				"all_headers", w.Header(),
+				"original_headers", resp.Headers,
+				"request_id", requestId)
+
+			th.logger.Info("7. this is what cloudflare gets on the other end", "headers", cleaned)
+
+			w.WriteHeader(resp.StatusCode)
+			w.Write(uncompressedBody)
+
+			th.logger.Info("handled gzipped response")
+			return
+
+		}
+		// Else handle non-gzipped response
+
+		for k, v := range cleaned {
 			w.Header().Set(k, v)
 		}
+
+		th.logger.Info("7. this is what cloudflare gets on the other end", "headers", cleaned)
 		w.WriteHeader(resp.StatusCode)
+
 		w.Write(resp.Body)
+
 	case <-time.After(30 * time.Second): // TODO: Make this some sort of configurable timeout
 
 		http.Error(w, "Request timed out", http.StatusGatewayTimeout)
@@ -189,4 +292,8 @@ func (th *TunnelHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (th *TunnelHandler) Shutdown() {
 	close(th.done)
 	th.cleanupDeadConnections()
+}
+
+func isGzipped(headers map[string]string) bool {
+	return strings.Contains(strings.ToLower(headers["Content-Encoding"]), "gzip")
 }

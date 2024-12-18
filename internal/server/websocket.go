@@ -125,6 +125,7 @@ func (th *TunnelHandler) handleWS(ws *websocket.Conn) {
 				continue
 			}
 			th.logger.Info("received http response from tunnel", "requestId", resp.RequestId, "status", resp.StatusCode)
+			th.logger.Info("6. after return journey in ws", "headers", resp.Headers)
 
 			th.mu.Lock()
 			if ch, exists := th.pendingRequests[resp.RequestId]; exists {
@@ -162,7 +163,7 @@ func (th *TunnelHandler) authenticateWebSocket(ws *websocket.Conn) error {
 
 // cleanupLoop periodically checks for dead connections and cleans them up
 func (th *TunnelHandler) cleanupLoop() {
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(60 * time.Second) // Check every 60 seconds
 	defer ticker.Stop()
 
 	for {

@@ -114,7 +114,7 @@ func (a *App) render() string {
 	b.WriteString("\n")
 
 	// Admin Tool Section
-	b.WriteString(color.Bold.Sprint("🔗 ADMIN TOOL\n"))
+	// b.WriteString(color.Bold.Sprint("🔗 ADMIN TOOL\n"))
 	// b.WriteString(color.Green.Sprint("   http://localhost:9000 (coming soon)\n\n")) // TODO: Implement this
 
 	// Stats Section
