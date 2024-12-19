@@ -4,6 +4,13 @@ A lightweight, developer-friendly tunneling service written in Go. Similarly to 
 
 Built as a way to debug and test full stack applications on mobile devices, using existing docker-compose config as configuration. 
 
+⚠️ Currently not for public use yet
+
+
+https://github.com/user-attachments/assets/005030d9-bc70-4864-bf5a-22b8b7373bb0
+
+
+
 ## Overview
 
 go-tunol allows you to create secure tunnels to your localhost, making it easy to:
