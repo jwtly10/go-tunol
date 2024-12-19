@@ -4,7 +4,6 @@ A lightweight, developer-friendly tunneling service written in Go. Similarly to 
 
 Built as a way to debug and test full stack applications on mobile devices, using existing docker-compose config as configuration. 
 
-
 ## Overview
 
 go-tunol allows you to create secure tunnels to your localhost, making it easy to:
@@ -13,37 +12,51 @@ go-tunol allows you to create secure tunnels to your localhost, making it easy t
 - Test webhooks locally
 - Share your local development environment
 
+## Features (& Planned)
+- ✅ Basic tunnel creation
+- ⭕ Docker integration (given a docker compose file, spin up the services and create tunnels, parsing env URLs where possible)
+- ⭕ Local dashboard for:
+    - ⭕ Request replaying
+    - ⭕ Detailed Request monitoring/viewing
+    - ⭕ Traffic metrics
+
 ## Quick Start
 
-```bash
-# Install
-go install github.com/jwtly10/go-tunol@latest
+Firstly sign in to the [admin dashboard](https://tunol.dev) to generate a new auth token.
 
-# Start a tunnel to your local service
-tunol --port 3000
+```bash
+# Install (assuming you have Go installed)
+go install github.com/jwtly10/go-tunol/cmd/tunol@latest
+
+# Once you have the auth token
+tunol --login <AUTH_TOKEN>
+
+# You can now start tunnels to your local services
+tunol --port 3001 --port 8001
 ```
 
-Your local service will be available at a generated URL like: `https://tunol.dev/abc123`
+You'll be met with a CLI dashboard showing the status of your tunnels:
 
-## Features
+```bash
+ go-tunol dashboard                                           11:09:51
+══════════════════════════════════════════════════════
+📡 TUNNELS
+   https://dzxp4r8a.tunol.dev ➔ localhost:3001 (⬆️ 1s)
+   https://ppeg6yxq.tunol.dev ➔ localhost:8001 (⬆️ 1s)
 
-- Instant tunnel creation
-- Secure WebSocket communication
-- Low latency forwarding
-- Request/response logging
+📊 STATS (last 60s)
+   0 requests • 0 errors • 0.0% success rate
+   Average response time: 0ms
 
-## Roadmap
+LIVE TRAFFIC (newest first)
+────────────────────────────────────────────────────
 
-- Request replaying - Save and replay HTTP requests for testing
-- Online request viewer - Monitor and debug requests in real-time
-- Authentication and access controls
-- Traffic metrics and analytics
-- Automatic infra standup with docker compose configuration
+Press Ctrl+C to quit
+```
+
+Your local service will be available at a generated URL like: `https://<SOME_ID>.tunol.dev`
 
 ## Development
-
-export TUNOL_CONFIG_DIR=$HOME/.tunol-dev
-export TUNOL_SERVER_URL=http://localhost:8001
 
 ```bash
 # Clone the repository
@@ -54,7 +67,17 @@ go mod download
 
 # Run tests
 go test ./... -v
+
+# To run the server
+go run cmd/server/main.go
+
+# TO run the CLI
+go run cmd/tunol/main.go [args]
 ```
+
+### Environment
+[.env-example](.env-example) contains the environment variables required to run the server,
+and also explains some of the environment variables needed to overrite defaults of the CLI
 
 ## Contributing
 
@@ -62,4 +85,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the [MIT License](LICENSE).

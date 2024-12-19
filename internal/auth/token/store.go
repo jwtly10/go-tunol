@@ -10,6 +10,8 @@ type Store struct {
 	configPath string
 }
 
+// NewTokenStore sets up the internal token store for the CLI
+// It will use TUNOL_CONFIG_DIR if set, otherwise defaults to ~/.tunol/
 func NewTokenStore() (*Store, error) {
 	if configPath := os.Getenv("TUNOL_CONFIG_DIR"); configPath != "" {
 		if err := os.MkdirAll(configPath, 0700); err != nil {
